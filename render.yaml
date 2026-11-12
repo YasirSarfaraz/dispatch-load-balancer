@@ -1,0 +1,16 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Render builds the Dockerfile, injects PORT (server.port=${PORT:8080}) and polls the health check.
+# The default profile uses in-memory H2, so no database is needed (data resets on every restart/deploy).
+services:
+  - type: web
+    name: dispatch-load-balancer
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: -XX:MaxRAMPercentage=75
