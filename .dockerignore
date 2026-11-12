@@ -1,0 +1,28 @@
+# Keep the Docker build context small. The build needs only: .mvn/, mvnw, pom.xml, src/
+# (do NOT add any of those here).
+
+# Build output and local tooling
+target/
+.git/
+.gitignore
+.gitattributes
+.claude/
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+graphify-out/
+*.log
+
+# Not needed inside the image
+postman/
+docs/
+samples/
+*.md
+*.pdf
+mvnw.cmd
+Dockerfile
+.dockerignore
+render.yaml

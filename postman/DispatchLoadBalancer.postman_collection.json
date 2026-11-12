@@ -1,0 +1,1541 @@
+{
+  "info": {
+    "name": "Dispatch Load Balancer",
+    "description": "All endpoints of the Dispatch Load Balancer, including validation errors and edge cases.\n\nSet the collection variable `baseUrl` (default http://localhost:8080, or the deployed Render URL). Run the whole collection in order with the Collection Runner: every request has tests. Folder 1 resets the data first, so the run is repeatable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Happy path",
+      "description": "Loads the 30-order / 5-vehicle sample dataset (samples/*.json) and plans it with each strategy. Total order weight 645 exceeds fleet capacity 500, so some LOW orders are intentionally unassigned.",
+      "item": [
+        {
+          "name": "Reset: DELETE orders",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset: DELETE vehicles",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST orders (sample dataset)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\"orderId\": \"ORD001\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 15, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD002\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 10, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD003\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD004\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD005\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 30, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD006\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 40, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD007\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD008\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD009\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD010\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 30, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD011\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD012\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 10, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD013\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD014\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 15, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD015\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD016\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 30, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD017\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD018\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 10, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD019\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD020\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 30, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD021\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 25, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD022\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD023\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 30, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD024\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD025\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 20, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD026\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD027\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 20, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD028\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD029\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 30, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD030\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST vehicles (sample dataset)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicles\": [\n    {\"vehicleId\": \"VEH001\", \"capacity\": 100, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"},\n    {\"vehicleId\": \"VEH002\", \"capacity\": 80, \"currentLatitude\": 28.5355, \"currentLongitude\": 77.391, \"currentAddress\": \"Sector 18, Noida, Uttar Pradesh, India\"},\n    {\"vehicleId\": \"VEH003\", \"capacity\": 120, \"currentLatitude\": 28.4595, \"currentLongitude\": 77.0266, \"currentAddress\": \"Cyber Hub, Gurgaon, Haryana, India\"},\n    {\"vehicleId\": \"VEH004\", \"capacity\": 90, \"currentLatitude\": 28.6139, \"currentLongitude\": 77.209, \"currentAddress\": \"Connaught Place, Delhi, India\"},\n    {\"vehicleId\": \"VEH005\", \"capacity\": 110, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan (greedy)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=greedy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "greedy"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
+                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = body.unassignedOrders || [];",
+                  "pm.test(\"strategy is one of greedy\", () => pm.expect([\"greedy\"]).to.include(body.strategy));",
+                  "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
+                  "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
+                  "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
+                  "    pm.expect(v.totalLoad).to.eql(sum);",
+                  "    pm.expect(v.totalLoad).to.be.at.most(capacity[v.vehicleId]);",
+                  "}));",
+                  "pm.test(\"totalDistance formatted like \\\"14.44 km\\\"\", () => body.dispatchPlan.forEach(v => pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
+                  "pm.test(\"assigned + unassigned = 30\", () => pm.expect(assigned.length + unassigned.length).to.eql(30));",
+                  "pm.test(\"all 12 HIGH orders assigned\", () => pm.expect(assigned.filter(o => o.priority === \"HIGH\").length).to.eql(12));",
+                  "pm.test(\"every unassigned order is LOW and has a reason\", () => unassigned.forEach(o => {",
+                  "    pm.expect(o.priority).to.eql(\"LOW\");",
+                  "    pm.expect(o.reason).to.be.a(\"string\").and.not.empty;",
+                  "}));",
+                  "pm.test(\"assigned orders carry their address\", () => assigned.forEach(o => pm.expect(o.address).to.be.a(\"string\").and.not.empty));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan (ortools)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=ortools",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "ortools"
+                }
+              ]
+            },
+            "description": "OR-Tools CVRP. Falls back to greedy (strategy field shows \"greedy\") if the native library is unavailable."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
+                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = body.unassignedOrders || [];",
+                  "pm.test(\"strategy is one of ortools/greedy\", () => pm.expect([\"ortools\",\"greedy\"]).to.include(body.strategy));",
+                  "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
+                  "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
+                  "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
+                  "    pm.expect(v.totalLoad).to.eql(sum);",
+                  "    pm.expect(v.totalLoad).to.be.at.most(capacity[v.vehicleId]);",
+                  "}));",
+                  "pm.test(\"totalDistance formatted like \\\"14.44 km\\\"\", () => body.dispatchPlan.forEach(v => pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
+                  "pm.test(\"assigned + unassigned = 30\", () => pm.expect(assigned.length + unassigned.length).to.eql(30));",
+                  "pm.test(\"all 12 HIGH orders assigned\", () => pm.expect(assigned.filter(o => o.priority === \"HIGH\").length).to.eql(12));",
+                  "pm.test(\"every unassigned order is LOW and has a reason\", () => unassigned.forEach(o => {",
+                  "    pm.expect(o.priority).to.eql(\"LOW\");",
+                  "    pm.expect(o.reason).to.be.a(\"string\").and.not.empty;",
+                  "}));",
+                  "pm.test(\"assigned orders carry their address\", () => assigned.forEach(o => pm.expect(o.address).to.be.a(\"string\").and.not.empty));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan (default strategy)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
+                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = body.unassignedOrders || [];",
+                  "pm.test(\"strategy is one of greedy\", () => pm.expect([\"greedy\"]).to.include(body.strategy));",
+                  "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
+                  "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
+                  "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
+                  "    pm.expect(v.totalLoad).to.eql(sum);",
+                  "    pm.expect(v.totalLoad).to.be.at.most(capacity[v.vehicleId]);",
+                  "}));",
+                  "pm.test(\"totalDistance formatted like \\\"14.44 km\\\"\", () => body.dispatchPlan.forEach(v => pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
+                  "pm.test(\"assigned + unassigned = 30\", () => pm.expect(assigned.length + unassigned.length).to.eql(30));",
+                  "pm.test(\"all 12 HIGH orders assigned\", () => pm.expect(assigned.filter(o => o.priority === \"HIGH\").length).to.eql(12));",
+                  "pm.test(\"every unassigned order is LOW and has a reason\", () => unassigned.forEach(o => {",
+                  "    pm.expect(o.priority).to.eql(\"LOW\");",
+                  "    pm.expect(o.reason).to.be.a(\"string\").and.not.empty;",
+                  "}));",
+                  "pm.test(\"assigned orders carry their address\", () => assigned.forEach(o => pm.expect(o.address).to.be.a(\"string\").and.not.empty));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Upsert",
+      "description": "POSTing an existing orderId updates it instead of creating a duplicate.",
+      "item": [
+        {
+          "name": "POST same order with changed weight",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD001\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan (ORD001 updated, still 30 orders)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const all = body.dispatchPlan.flatMap(v => v.assignedOrders).concat(body.unassignedOrders || []);",
+                  "pm.test(\"still 30 orders (updated, not inserted)\", () => pm.expect(all.length).to.eql(30));",
+                  "pm.test(\"ORD001 now weighs 25\", () => pm.expect(all.find(o => o.orderId === \"ORD001\").packageWeight).to.eql(25));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Validation errors",
+      "description": "Every error uses one shape: {\"status\":\"error\",\"message\":\"...\",\"errors\":[\"field: reason\"],\"timestamp\":\"...\"}. None of these requests change stored data.",
+      "item": [
+        {
+          "name": "Invalid priority URGENT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD902\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"URGENT\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions the allowed priorities\", () => pm.expect(text).to.include(\"HIGH, MEDIUM, LOW\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Latitude 91",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD903\",\n      \"latitude\": 91,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions latitude\", () => pm.expect(text).to.include(\"latitude\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Longitude -181",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD904\",\n      \"latitude\": 28.6139,\n      \"longitude\": -181,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions longitude\", () => pm.expect(text).to.include(\"longitude\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "packageWeight 0",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD905\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 0,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions packageWeight\", () => pm.expect(text).to.include(\"packageWeight\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Vehicle capacity 0",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicles\": [\n    {\n      \"vehicleId\": \"VEH900\",\n      \"capacity\": 0,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions capacity\", () => pm.expect(text).to.include(\"capacity\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Blank orderId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"  \",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions orderId\", () => pm.expect(text).to.include(\"orderId\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing address",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD900\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions address\", () => pm.expect(text).to.include(\"address\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Empty orders list",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions orders\", () => pm.expect(text).to.include(\"orders\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\"orderId\": \"ORD001\", \"latitude\": 28.6139, \"longitude\": 77.209,\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate orderIds in one request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD906\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD906\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 5,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error names the duplicate\", () => {",
+                  "    pm.expect(text.toLowerCase()).to.include(\"duplicate\");",
+                  "    pm.expect(text).to.include(\"ORD906\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown strategy foo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=foo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "foo"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"error mentions the strategy\", () => {",
+                  "    pm.expect(text.toLowerCase()).to.include(\"strategy\");",
+                  "    pm.expect(text).to.include(\"foo\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "packageWeight 10.5 (not an integer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "description": "Fractional weights are rejected instead of being silently truncated to 10.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\"orderId\": \"ORD901\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 10.5, \"priority\": \"HIGH\"}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Edge cases",
+      "description": "No vehicles -> 400; no orders -> 200 with an empty plan.",
+      "item": [
+        {
+          "name": "DELETE vehicles",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan with no vehicles -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"message: No vehicles available for dispatch\", () => pm.expect(body.message).to.include(\"No vehicles available for dispatch\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST vehicles (restore sample fleet)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicles\": [\n    {\"vehicleId\": \"VEH001\", \"capacity\": 100, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"},\n    {\"vehicleId\": \"VEH002\", \"capacity\": 80, \"currentLatitude\": 28.5355, \"currentLongitude\": 77.391, \"currentAddress\": \"Sector 18, Noida, Uttar Pradesh, India\"},\n    {\"vehicleId\": \"VEH003\", \"capacity\": 120, \"currentLatitude\": 28.4595, \"currentLongitude\": 77.0266, \"currentAddress\": \"Cyber Hub, Gurgaon, Haryana, India\"},\n    {\"vehicleId\": \"VEH004\", \"capacity\": 90, \"currentLatitude\": 28.6139, \"currentLongitude\": 77.209, \"currentAddress\": \"Connaught Place, Delhi, India\"},\n    {\"vehicleId\": \"VEH005\", \"capacity\": 110, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE orders",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan with no orders -> 200 empty plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"every vehicle listed, all empty\", () => {",
+                  "    pm.expect(body.dispatchPlan).to.have.lengthOf(5);",
+                  "    body.dispatchPlan.forEach(v => {",
+                  "        pm.expect(v.totalLoad).to.eql(0);",
+                  "        pm.expect(v.totalDistance).to.eql(\"0.00 km\");",
+                  "        pm.expect(v.assignedOrders).to.be.an(\"array\").that.is.empty;",
+                  "    });",
+                  "});",
+                  "pm.test(\"nothing unassigned\", () => pm.expect(body.unassignedOrders || []).to.be.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Test data",
+      "description": "Demo endpoint: REPLACES all stored orders and vehicles with a reproducible generated dataset (30 Indian cities, 30/40/30 HIGH/MEDIUM/LOW, weight 1-50, capacity 100-500). Limits: 1-50,000 orders, 1-2,000 vehicles.",
+      "item": [
+        {
+          "name": "POST test-data 5000 orders / 100 vehicles / seed 42",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/test-data?orders=5000&vehicles=100&seed=42",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "test-data"
+              ],
+              "query": [
+                {
+                  "key": "orders",
+                  "value": "5000"
+                },
+                {
+                  "key": "vehicles",
+                  "value": "100"
+                },
+                {
+                  "key": "seed",
+                  "value": "42"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success with the requested counts\", () => {",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.ordersGenerated).to.eql(5000);",
+                  "    pm.expect(body.vehiclesGenerated).to.eql(100);",
+                  "    pm.expect(body.seed).to.eql(42);",
+                  "    pm.expect(body.elapsedMs).to.be.a(\"number\").and.at.least(0);",
+                  "});",
+                  "console.log(\"test-data elapsedMs=\" + body.elapsedMs + \", HTTP time=\" + pm.response.responseTime + \" ms\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET plan (5000 generated orders)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = body.unassignedOrders || [];",
+                  "pm.test(\"100 vehicles listed\", () => pm.expect(body.dispatchPlan).to.have.lengthOf(100));",
+                  "pm.test(\"assigned + unassigned = 5000\", () => pm.expect(assigned.length + unassigned.length).to.eql(5000));",
+                  "pm.test(\"vehicle loads within the generated capacity range\", () => body.dispatchPlan.forEach(v => {",
+                  "    pm.expect(v.totalLoad).to.eql(v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0));",
+                  "    pm.expect(v.totalLoad).to.be.at.most(500);",
+                  "}));",
+                  "pm.test(\"planned in under 30 s\", () => pm.expect(pm.response.responseTime).to.be.below(30000));",
+                  "console.log(\"plan HTTP time=\" + pm.response.responseTime + \" ms, assigned=\" + assigned.length + \", unassigned=\" + unassigned.length);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST test-data orders=60000 -> 400",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/test-data?orders=60000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "test-data"
+              ],
+              "query": [
+                {
+                  "key": "orders",
+                  "value": "60000"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"range message\", () => {",
+                  "    pm.expect(body.message).to.eql(\"orders must be between 1 and 50000\");",
+                  "    pm.expect(body.errors).to.include(\"orders: must be between 1 and 50000\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST test-data vehicles=2001 -> 400",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/test-data?vehicles=2001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "test-data"
+              ],
+              "query": [
+                {
+                  "key": "vehicles",
+                  "value": "2001"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "const text = pm.response.text();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"range message\", () => {",
+                  "    pm.expect(body.message).to.eql(\"vehicles must be between 1 and 2000\");",
+                  "    pm.expect(body.errors).to.include(\"vehicles: must be between 1 and 2000\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Ops",
+      "description": "Health check (used by Render) and the OpenAPI spec (Swagger UI: {{baseUrl}}/swagger-ui.html).",
+      "item": [
+        {
+          "name": "GET /actuator/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"status UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /v3/api-docs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v3",
+                "api-docs"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const spec = pm.response.json();",
+                  "pm.test(\"OpenAPI 3 document\", () => pm.expect(spec.openapi).to.match(/^3\\./));",
+                  "pm.test(\"documents every dispatch endpoint\", () => {",
+                  "    [\"/api/dispatch/orders\", \"/api/dispatch/vehicles\", \"/api/dispatch/plan\", \"/api/dispatch/test-data\"]",
+                  "        .forEach(p => pm.expect(spec.paths).to.have.property(p));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
