@@ -32,3 +32,6 @@ logs/
 # Tooling
 .claude/
 graphify-out/
+
+# Archify working files (the published diagram is docs/architecture.html)
+.archify/

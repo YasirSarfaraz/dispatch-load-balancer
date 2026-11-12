@@ -53,6 +53,16 @@ packaged in `target/dispatch-load-balancer-1.0.0.jar`).
 
 ## Architecture
 
+[![Request flow diagram](docs/architecture.png)](docs/architecture.html)
+
+**Interactive version:** [`docs/architecture.html`](docs/architecture.html) is one self-contained file.
+Download it and open it in any browser. It opens in the light theme, and you can switch to dark with
+the toggle at the top right. In the interactive version, ROUTE and LENS trace the connections between
+components, and Export saves the diagram as an image or SVG. It was made with
+[Archify](https://github.com/tt-a1i/archify).
+
+The same flow as a Mermaid diagram:
+
 ```mermaid
 flowchart LR
     Client["Client: Postman / curl / Swagger UI"]
