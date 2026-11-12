@@ -1,5 +1,6 @@
 package com.freightfox.dispatch.dto.response;
 
+import com.freightfox.dispatch.strategy.StrategyNames;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -11,7 +12,7 @@ public record DispatchPlanResponse(
         @Schema(description = "Orders that could not be assigned, with a reason")
         List<UnassignedOrderResponse> unassignedOrders,
         @Schema(description = "Strategy that actually produced the plan", example = "greedy",
-                allowableValues = {"greedy", "ortools"})
+                allowableValues = {StrategyNames.GREEDY, StrategyNames.ORTOOLS})
         String strategy) {
 
     public DispatchPlanResponse {

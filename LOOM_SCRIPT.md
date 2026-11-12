@@ -125,7 +125,9 @@ library fails, it falls back to greedy and says 'greedy'."
 **Say:** "For scale, this demo endpoint generates a reproducible dataset around 30 Indian cities and
 replaces everything stored. 5,000 orders and 100 vehicles were generated and stored through the same
 chunked upsert in the number of milliseconds you see in elapsedMs. Now the plan for all 5,000 orders:
-the browser shows the full round trip, including serializing the response. The greedy assignment is
+the browser shows the full round trip, including serializing the response. Note the many unassigned
+orders: 100 vehicles carry about 30,000 kg against about 127,500 kg of demand, so most orders cannot
+fit, and every HIGH order that fits was placed before any MEDIUM or LOW one. The greedy assignment is
 O(n times m) and allocation-free; the benchmarks in docs/PERFORMANCE.md go up to 50,000 orders and 500
 vehicles."
 
@@ -139,7 +141,7 @@ vehicles."
 coverage.
 
 **Say:** "The project was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. mvnw verify runs
-<TBD> tests and enforces an 85% line-coverage gate with JaCoCo; we're at <TBD>. The tests cover every
+1,122 tests and enforces an 85% line-coverage gate with JaCoCo; we're at 97.9% line coverage. The tests cover every
 validation case and exact error message, the HIGH-priority invariant on random data, the exact sample
 routes, every OR-Tools fallback, and they prove JDBC batching by counting the actual SQL statements.
 Performance tests run separately with mvnw verify -Pperformance and write docs/PERFORMANCE.md."

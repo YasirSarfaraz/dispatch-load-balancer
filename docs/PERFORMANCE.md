@@ -1,6 +1,6 @@
 # Performance Report
 
-Generated: 2026-11-12T21:59:35+05:30
+Generated: 2026-11-12T22:21:53+05:30
 
 > This file is written automatically by the `@Tag("performance")` tests in `src/test/java/com/freightfox/dispatch/performance`. Do not edit it by hand; re-run the benchmarks instead.
 
@@ -37,7 +37,7 @@ Generated: 2026-11-12T21:59:35+05:30
 | Greedy 2-opt | 1000 passes / 25 ms per vehicle |
 | OR-Tools time limit | 3000 ms (greedy warm start + GUIDED_LOCAL_SEARCH; PATH_CHEAPEST_ARC only without a seed) |
 | Thresholds | greedy plan < 2000 ms; OR-Tools plan < time limit + 10000 ms |
-| OR-Tools native load (before any timed plan) | 745 ms |
+| OR-Tools native load (before any timed plan) | 721 ms |
 
 ### Dispatch scenarios
 
@@ -62,11 +62,11 @@ Generated: 2026-11-12T21:59:35+05:30
 
 | Strategy | Orders x Vehicles | Upsert ms | Plan ms | Total distance km | Assigned | Unassigned | Peak heap MB |
 |---|---|---:|---:|---:|---:|---:|---:|
-| greedy | 1,000 x 50 | 47 | 3 | 74,937.84 | 515 | 485 | 51 |
-| greedy | 10,000 x 200 | 276 | 12 | 151,596.81 | 1,661 | 8,339 | 146 |
-| greedy | 50,000 x 500 | 907 | 81 | 344,619.59 | 3,576 | 46,424 | 339 |
-| ortools | 200 x 20 | 8 | 3,013 | 6,811.19 | 200 | 0 | 50 |
-| ortools | 1,000 x 50 | 14 | 3,090 | 68,056.23 | 515 | 485 | 65 |
+| greedy | 1,000 x 50 | 45 | 4 | 74,937.84 | 515 | 485 | 50 |
+| greedy | 10,000 x 200 | 274 | 12 | 151,596.81 | 1,661 | 8,339 | 146 |
+| greedy | 50,000 x 500 | 863 | 75 | 344,619.59 | 3,576 | 46,424 | 344 |
+| ortools | 200 x 20 | 8 | 3,012 | 6,811.19 | 200 | 0 | 50 |
+| ortools | 1,000 x 50 | 13 | 3,089 | 68,056.23 | 515 | 485 | 65 |
 
 - **Upsert ms**: `VehicleService.upsertVehicles` + `OrderService.upsertOrders` (the real services, H2 in-memory, chunked findAllById + saveAll with JDBC batching), on empty tables, so every row is an INSERT.
 - **Plan ms**: the strategy bean's `plan(orders, vehicles)` alone, on the entities loaded from the database with `findAllOrders()` / `findAllVehicles()`. End-to-end `DispatchService.generatePlan` times are in the details table.
@@ -77,11 +77,11 @@ Generated: 2026-11-12T21:59:35+05:30
 
 | Strategy | Orders x Vehicles | Upsert vehicles ms | Upsert orders ms | End-to-end generatePlan ms | Order weight / fleet capacity | Assigned H / M / L | Unassigned H / M / L | Heap baseline MB | Heap pool-peak sum MB |
 |---|---|---:|---:|---:|---|---|---|---:|---:|
-| greedy | 1,000 x 50 | 7 | 40 | 22 | 26,250 / 15,124 | 285 / 230 / 0 | 0 / 152 / 333 | 37 | 51 |
-| greedy | 10,000 x 200 | 15 | 261 | 68 | 254,361 / 58,333 | 1,661 / 0 / 0 | 1,246 / 4,058 / 3,035 | 37 | 146 |
-| greedy | 50,000 x 500 | 17 | 890 | 166 | 1,275,971 / 149,823 | 3,576 / 0 / 0 | 11,310 / 20,214 / 14,900 | 39 | 381 |
+| greedy | 1,000 x 50 | 9 | 36 | 23 | 26,250 / 15,124 | 285 / 230 / 0 | 0 / 152 / 333 | 37 | 50 |
+| greedy | 10,000 x 200 | 15 | 259 | 66 | 254,361 / 58,333 | 1,661 / 0 / 0 | 1,246 / 4,058 / 3,035 | 37 | 146 |
+| greedy | 50,000 x 500 | 16 | 847 | 134 | 1,275,971 / 149,823 | 3,576 / 0 / 0 | 11,310 / 20,214 / 14,900 | 39 | 382 |
 | ortools | 200 x 20 | 5 | 3 | 3,014 | 5,377 / 6,602 | 52 / 75 / 73 | 0 / 0 / 0 | 46 | 50 |
-| ortools | 1,000 x 50 | 4 | 10 | 3,081 | 26,250 / 15,124 | 285 / 230 / 0 | 0 / 152 / 333 | 36 | 65 |
+| ortools | 1,000 x 50 | 4 | 9 | 3,083 | 26,250 / 15,124 | 285 / 230 / 0 | 0 / 152 / 333 | 36 | 65 |
 
 The generator draws weights 1-50 (mean 25.5) and capacities 100-500 (mean 300), so whenever the orders outnumber the vehicles by more than about 12 to 1 the total order weight exceeds the fleet capacity (see the weight / capacity column) and many unassigned orders are expected. They are LOW and MEDIUM first because HIGH orders are placed before any other priority.
 
@@ -91,10 +91,10 @@ Before the timed greedy scenarios, the greedy strategy planned an in-memory data
 
 | Run | Plan ms |
 |---|---:|
-| Cold (first plan in this JVM) | 29 |
-| Warm (fastest of the following runs) | 14 |
+| Cold (first plan in this JVM) | 26 |
+| Warm (fastest of the following runs) | 13 |
 
-A first upsert of 2,000 x 50 (vehicles + orders) took 305 ms (Hibernate/JDBC code paths cold); the tables were then cleared, so the scenario upsert times are warm.
+A first upsert of 2,000 x 50 (vehicles + orders) took 292 ms (Hibernate/JDBC code paths cold); the tables were then cleared, so the scenario upsert times are warm.
 
 The OR-Tools native libraries had already been loaded in this JVM by an earlier test class (the load time is listed in that class's test settings above), so that one-off cost is not part of any OR-Tools plan time below.
 
@@ -102,8 +102,8 @@ The OR-Tools native libraries had already been loaded in this JVM by an earlier 
 
 | Orders x Vehicles | OR-Tools km | Greedy km | OR-Tools vs greedy distance | OR-Tools assigned (H / M / L) | Greedy assigned (H / M / L) | OR-Tools km per assigned order | Greedy km per assigned order | OR-Tools plan ms | Greedy plan ms |
 |---|---:|---:|---:|---|---|---:|---:|---:|---:|
-| 200 x 20 | 6,811.19 | 17,219.78 | -60.4% | 200 (52 / 75 / 73) | 200 (52 / 75 / 73) | 34.056 | 86.099 | 3,013 | 0 |
-| 1,000 x 50 | 68,056.23 | 74,937.84 | -9.2% | 515 (285 / 230 / 0) | 515 (285 / 230 / 0) | 132.148 | 145.510 | 3,090 | 0 |
+| 200 x 20 | 6,811.19 | 17,219.78 | -60.4% | 200 (52 / 75 / 73) | 200 (52 / 75 / 73) | 34.056 | 86.099 | 3,012 | 0 |
+| 1,000 x 50 | 68,056.23 | 74,937.84 | -9.2% | 515 (285 / 230 / 0) | 515 (285 / 230 / 0) | 132.148 | 145.510 | 3,089 | 0 |
 
 Both strategies ran on the same entities loaded from the database. When the assigned counts differ, total distance alone is not a like-for-like comparison (serving more orders needs more driving); km per assigned order is shown as a rough normaliser. OR-Tools' drop penalties are lexicographic by priority and count orders, not weight, so it maximises the number of served orders per priority level before it minimises distance. Greedy places heavier orders first within a priority.
 
@@ -115,22 +115,22 @@ No OR-Tools result left a HIGH order unassigned while serving a lower priority.
 
 | Time limit | Strategy | Assigned | Assigned H / M / L | Unassigned H / M / L | Total distance km | Plan ms |
 |---:|---|---:|---|---|---:|---:|
-| 3 s | ortools | 515 | 285 / 230 / 0 | 0 / 152 / 333 | 68,056.23 | 3,090 |
-| 10 s | ortools | 515 | 285 / 230 / 0 | 0 / 152 / 333 | 50,524.67 | 10,079 |
-| 30 s | ortools | 515 | 285 / 230 / 0 | 0 / 152 / 333 | 37,612.07 | 30,082 |
+| 3 s | ortools | 515 | 285 / 230 / 0 | 0 / 152 / 333 | 68,056.23 | 3,089 |
+| 10 s | ortools | 515 | 285 / 230 / 0 | 0 / 152 / 333 | 51,281.26 | 10,084 |
+| 30 s | ortools | 515 | 285 / 230 / 0 | 0 / 152 / 333 | 37,445.18 | 30,082 |
 
-The configured limit is the first row (the scenario above); the others use a strategy instance built with the production constructor and only the time limit changed. Because the objective is lexicographic (served HIGH, then MEDIUM, then LOW, then distance), the distance can grow with a longer limit while the priority mix improves.
+The configured limit is the first row (the scenario above); the others use a strategy instance built with the production constructor and only the time limit changed. Because the objective is lexicographic (served HIGH, then MEDIUM, then LOW, then distance) and the search starts from the greedy plan, a longer limit can only keep or improve the priority mix; with the mix unchanged, the extra time goes into shorter routes.
 
 ## CVRPLIB benchmark (X instances)
 
 | Instance | Customers | Q | k | BKS routes | Fleet given | Best-known cost | Strategy | Served | Routes used | CVRPLIB cost (closed tours) | Gap vs best-known | Open-route cost (no return legs) | Plan ms |
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|
-| X-n101-k25 | 100 | 206 | 25 | 26 | 26 | 27,591 | greedy | 100 / 100 | 26 | 37,668 | +36.5% | 22,834 | 0 |
+| X-n101-k25 | 100 | 206 | 25 | 26 | 26 | 27,591 | greedy | 100 / 100 | 26 | 37,668 | +36.5% | 22,834 | 1 |
 | X-n101-k25 | 100 | 206 | 25 | 26 | 26 | 27,591 | ortools | 100 / 100 | 26 | 32,152 | +16.5% | 17,478 | 3,145 |
 | X-n106-k14 | 105 | 600 | 14 | 14 | 14 | 26,362 | greedy | 105 / 105 | 14 | 37,303 | +41.5% | 22,152 | 0 |
-| X-n106-k14 | 105 | 600 | 14 | 14 | 14 | 26,362 | ortools | 105 / 105 | 14 | 29,673 | +12.6% | 15,334 | 3,007 |
+| X-n106-k14 | 105 | 600 | 14 | 14 | 14 | 26,362 | ortools | 105 / 105 | 14 | 29,673 | +12.6% | 15,334 | 3,008 |
 | X-n110-k13 | 109 | 66 | 13 | 13 | 13 | 14,971 | greedy | 109 / 109 | 13 | 21,853 | +46.0% | 16,212 | 0 |
-| X-n110-k13 | 109 | 66 | 13 | 13 | 13 | 14,971 | ortools | 109 / 109 | 13 | 16,618 | +11.0% | 10,472 | 3,007 |
+| X-n110-k13 | 109 | 66 | 13 | 13 | 13 | 14,971 | ortools | 109 / 109 | 13 | 16,618 | +11.0% | 10,472 | 3,008 |
 
 Instances and best-known solutions (BKS) are the genuine CVRPLIB files (Uchoa et al. 2017, set X),
 downloaded from https://galgos.inf.puc-rio.br/cvrplib/ and stored in `src/test/resources/cvrplib`.

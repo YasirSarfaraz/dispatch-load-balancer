@@ -4,10 +4,11 @@ server:
     include-stacktrace: never
     include-message: never
     include-binding-errors: never
-  tomcat:
-    # Large batches (e.g. 50,000 orders, about 7 MB of JSON) must be accepted.
-    max-swallow-size: 50MB
-    max-http-form-post-size: 50MB
+  # Large JSON batches (e.g. 50,000 orders, about 7 MB) need no extra setting: Tomcat applies no size
+  # limit to JSON request bodies (its max-http-form-post-size only covers form posts) and Jackson
+  # streams the body. Put a reverse proxy limit in front of the service if a hard cap is required.
+  # Behind Render's TLS proxy, honour X-Forwarded-* so redirects (e.g. /swagger-ui.html) stay on https.
+  forward-headers-strategy: framework
   compression:
     enabled: true
     mime-types: application/json
@@ -39,8 +40,12 @@ spring:
       fail-on-null-for-primitives: true
       # "priority": 1 must be rejected, not silently read as the enum at index 1 (MEDIUM).
       fail-on-numbers-for-enums: true
+      # {"orders": [...]} xyz is malformed, not a valid body followed by ignorable text.
+      fail-on-trailing-tokens: true
     mapper:
       accept-case-insensitive-enums: true
+      # "packageWeight": "10" is a string, not a number: reject it like 10.5 instead of coercing.
+      allow-coercion-of-scalars: false
   mvc:
     problemdetails:
       enabled: false

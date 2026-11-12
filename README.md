@@ -421,10 +421,10 @@ ORD030.
 
 **OR-Tools result** (3 s time limit, run on the lead's machine): 24 orders assigned (all 12 HIGH, all 8
 MEDIUM, 4 LOW), **34.24 km** in total; the Karol Bagh -> Connaught Place -> Noida relay is the only
-cross-city travel. Dropped, all LOW with `Dropped by optimizer: insufficient capacity`: ORD006, ORD010,
-ORD014, ORD016, ORD022, ORD030. Because the penalties count orders, OR-Tools serves more (lighter) LOW
-orders than greedy, which prefers heavier ones. With a 1 s limit on a cold JVM it can stop at a 48.27 km
-local optimum, which is why 3 s is the default. `SampleDatasetIntegrationTest` asserts, for both
+cross-city travel. Six LOW orders are dropped with `Dropped by optimizer: insufficient capacity`; which
+six can vary between runs because several LOW sets of equal count fit (two runs of the independent
+review both dropped ORD003, ORD006, ORD010, ORD016, ORD019, ORD030). Because the penalties count orders,
+OR-Tools serves more (lighter) LOW orders than greedy, which prefers heavier ones. `SampleDatasetIntegrationTest` asserts, for both
 strategies, that all 12 HIGH orders are assigned, no vehicle is over capacity, assigned + unassigned =
 30 and every unassigned order is LOW, and that OR-Tools is not longer than greedy.
 
@@ -439,6 +439,8 @@ strategies, that all 12 HIGH orders are assigned, no vehicle is over capacity, a
 - Weights and capacities are whole numbers (int, e.g. kg). `10.5` is rejected with 400 rather than
   truncated.
 - `priority` is case-insensitive (`"high"` is accepted); a number such as `1` is rejected.
+- Parsing is strict: numbers sent as strings (`"packageWeight": "10"`), values that overflow an int
+  (`3000000000`) and trailing text after the JSON body are rejected with 400.
 - IDs and addresses are stored exactly as sent (case-sensitive IDs).
 - Each POST is all-or-nothing: the whole batch is validated first; any invalid item or duplicate ID
   gives 400 and nothing is stored; the upsert runs in one transaction.
@@ -476,10 +478,15 @@ strategies, that all 12 HIGH orders are assigned, no vehicle is over capacity, a
   on a busy machine. The constraints (capacity, priorities, each order exactly once) always hold.
 - The cap compares `max-orders` with the total number of orders; above it greedy runs and the response
   says `"strategy": "greedy"`.
+- Warm start and guard: greedy runs once per OR-Tools call; its plan seeds the search and is returned
+  if OR-Tools would leave more HIGH (then MEDIUM, then LOW) orders unassigned. An empty or rejected seed
+  means a cold `PATH_CHEAPEST_ARC` start.
+- At most 2 OR-Tools solves run at once; extra concurrent requests get the greedy plan.
 
 **Test data**
 - `POST /api/dispatch/test-data` REPLACES all stored orders and vehicles (delete orders, delete
-  vehicles, upsert vehicles, upsert orders, through the same services; not one atomic transaction).
+  vehicles, upsert vehicles, upsert orders, through the same services, all in ONE transaction, so a
+  concurrent plan request sees either the old or the new dataset).
   Calls are serialized per instance with a lock. `elapsedMs` covers generate + clear + store, not
   planning.
 - 30 real Indian city centres; points uniform within a 15 km disc; address `Near <City>, India`;
@@ -574,8 +581,8 @@ Environment variables used by the deployment: `PORT` (server port, default 8080)
 
 Coverage report: `target/site/jacoco/index.html`.
 
-- Total tests: <TBD>
-- Line coverage: <TBD>
+- Total tests: 1,122 (`./mvnw verify`, plus 10 performance/CVRPLIB tests in `-Pperformance`)
+- Line coverage: 97.87% (1,196 of 1,222 lines), branch coverage 87.76% (380 of 433)
 
 The normal build excludes `@Tag("performance")` tests. Mockito is attached as a `-javaagent`, as
 recommended for JDK 21.
@@ -586,11 +593,12 @@ recommended for JDK 21.
 |---|---|---|
 | Distance | `HaversineDistanceCalculatorTest`, `HaversineTableTest` | Same point = 0, Connaught Place to Karol Bagh about 14.4 km, symmetry; the trig table matches the calculator |
 | Greedy | `GreedyPriorityDispatchStrategyTest`, `GreedySampleDatasetTest`, `GreedyRandomizedInvariantTest`, `RouteOptimizerTest` | Capacity never exceeded, priority order, nearest vehicle, tie-breaks, unassigned reasons, empty orders, single vehicle, determinism, exact sample routes (73.42 km), the HIGH invariant on randomized data, 2-opt never lengthens a route |
-| OR-Tools | `OrToolsDispatchStrategyTest`, `DropPenaltiesTest`, `CvrpModelBuilderTest`, `OrToolsNativeLoaderTest` | Sample invariants, HIGH kept over MEDIUM/LOW, MEDIUM over several LOW, far LOW served rather than dropped, open routes, every fallback (cap, native load failure, no solution, solver exception, invalid solutions), penalty arithmetic and overflow handling |
+| OR-Tools | `OrToolsDispatchStrategyTest`, `OrToolsWarmStartTest`, `OrToolsCvrpSolverTest`, `SeedRoutesTest`, `UnassignedCountsTest`, `DropPenaltiesTest`, `CvrpModelBuilderTest`, `OrToolsNativeLoaderTest` | Sample invariants, HIGH kept over MEDIUM/LOW, MEDIUM over several LOW, far LOW served rather than dropped, open routes, the greedy warm start (seed index semantics, regression on 1,000 x 50 capacity-scarce data), the priority guard, the 2-solve concurrency bulkhead, every fallback (cap, native load failure, no solution, solver exception, invalid solutions), penalty arithmetic and overflow handling |
 | Registry | `DispatchStrategyRegistryTest` | Case-insensitive lookup, default, unknown names, duplicate names |
 | Services | `DefaultOrderServiceTest`, `DefaultVehicleServiceTest`, `DefaultDispatchServiceTest` | Mockito tests for upsert, ordering of checks, no-vehicles error |
-| Persistence | `UpsertJdbcBatchingIntegrationTest` | JDBC batching proven with a counting JDBC proxy and Hibernate statistics: 120 new orders = 1 SELECT + 3 batches (50 + 50 + 20) and no single-row inserts; 2,500 orders with 500 existing = 3 SELECTs, 40 INSERT batches, 10 UPDATE batches; unchanged rows = no SQL; delete all = 1 DELETE |
-| Web layer | `DispatchControllerTest`, `GlobalExceptionHandlerTest`, `JsonErrorTranslatorTest`, `TestDataControllerTest`, `TestDataControllerDisabledTest` | Every validation case, exact success bodies, exact error messages, 404/405/406/415 handling, error capping |
+| Persistence (conflicts) | `ChunkedUpserterConflictIntegrationTest` | A concurrent insert of the same new ID (reproduced deterministically against H2) surfaces as `DataIntegrityViolationException`, i.e. 409, not 500. |
+| Persistence (batching) | `UpsertJdbcBatchingIntegrationTest` | JDBC batching proven with a counting JDBC proxy and Hibernate statistics: 120 new orders = 1 SELECT + 3 batches (50 + 50 + 20) and no single-row inserts; 2,500 orders with 500 existing = 3 SELECTs, 40 INSERT batches, 10 UPDATE batches; unchanged rows = no SQL; delete all = 1 DELETE |
+| Web layer | `DispatchControllerTest`, `StrictJsonParsingTest`, `GlobalExceptionHandlerTest`, `JsonErrorTranslatorTest`, `TestDataControllerTest`, `TestDataControllerDisabledTest` | Every validation case, exact success bodies, exact error messages, strict parsing (integer overflow, `"10"` as a number, trailing tokens), 404/405/406/415 handling, error capping |
 | Mappers, model | `DispatchPlanMapperTest`, `RequestMapperTest`, `PriorityTest` | Distance formatting (`"14.44 km"`), visiting order preserved, DTO mapping |
 | End to end | `SampleDatasetIntegrationTest`, `DispatchApiIntegrationTest`, `TestDataIntegrationTest`, `LargeBatchIntegrationTest` | Sample dataset through HTTP + H2 for both strategies (all 12 HIGH assigned, capacity, 30 orders accounted for, unassigned all LOW, OR-Tools <= greedy); full wiring; test-data generation and the OR-Tools cap fallback; a 50,000-order request body |
 | Test data | `TestDataGeneratorTest`, `TestDataServiceTest` | Determinism per seed, ranges, priority mix, replace semantics and limits |
@@ -608,7 +616,34 @@ invariant on large generated datasets, and writes the results with machine infor
 ## Performance and Scalability
 
 <!-- PERFORMANCE_TABLE_START -->
-_Filled from docs/PERFORMANCE.md by the lead._
+Measured by `./mvnw verify -Pperformance` (generated into [docs/PERFORMANCE.md](docs/PERFORMANCE.md),
+2026-11-12) on Windows 11, 16 logical CPUs (AMD), Java 21.0.6, `-Xmx2g`, H2 in-memory, seed 42,
+single run after a JIT warm-up. Numbers vary by machine.
+
+| Strategy | Orders x Vehicles | Upsert ms | Plan ms | Total distance km | Assigned | Unassigned | Peak heap MB |
+|---|---|---:|---:|---:|---:|---:|---:|
+| greedy | 1,000 x 50 | 45 | 4 | 74,937.84 | 515 | 485 | 50 |
+| greedy | 10,000 x 200 | 274 | 12 | 151,596.81 | 1,661 | 8,339 | 146 |
+| greedy | 50,000 x 500 | 863 | 75 | 344,619.59 | 3,576 | 46,424 | 344 |
+| ortools | 200 x 20 | 8 | 3,012 | 6,811.19 | 200 | 0 | 50 |
+| ortools | 1,000 x 50 | 13 | 3,089 | 68,056.23 | 515 | 485 | 65 |
+
+The generated datasets are deliberately capacity-scarce whenever orders outnumber vehicles by more than
+about 12 to 1 (e.g. 1,275,971 kg of orders vs 149,823 kg of fleet at 50,000 x 500), so many unassigned
+orders are expected; HIGH orders are always placed first. On the same data, OR-Tools (warm-started from
+greedy) serves the same orders per priority with **60.4% less distance at 200 x 20** and **9.2% less at
+1,000 x 50** (more with a longer time limit: 37,445 km at 30 s).
+
+CVRPLIB set X (genuine instances, closed-tour Euclidean metric, all customers served by both):
+
+| Instance | Best-known | Greedy gap | OR-Tools gap (3 s) |
+|---|---:|---:|---:|
+| X-n101-k25 | 27,591 | +36.5% | +16.5% |
+| X-n106-k14 | 26,362 | +41.5% | +12.6% |
+| X-n110-k13 | 14,971 | +46.0% | +11.0% |
+
+The benchmark charges return legs and forbids dropping customers, while production optimises open
+routes with priorities, so the gaps are indicative only (see docs/PERFORMANCE.md for the full method).
 <!-- PERFORMANCE_TABLE_END -->
 
 How the design scales:
@@ -702,6 +737,12 @@ curl -X POST "http://localhost:8080/api/dispatch/test-data?orders=5000&vehicles=
 
 curl http://localhost:8080/api/dispatch/plan
 ```
+
+Note: with the defaults (5,000 orders of 1-50 kg, about 127,500 kg in total, against 100 vehicles of
+100-500 kg, about 30,000 kg in total) the fleet can carry only about a quarter of the demand, so most
+orders, including some HIGH ones, are correctly reported as unassigned with
+`Insufficient remaining capacity across fleet`; every HIGH order that fits is placed before any
+MEDIUM or LOW one. Use `vehicles=500` (about 150,000 kg) to see a fleet that serves most of the demand.
 
 ### Health and API docs
 
@@ -832,9 +873,16 @@ Notes:
 
 - **OR-Tools is time-bound and not strictly deterministic.** Guided Local Search runs for the full time
   limit (about 3 s per plan, plus about 0.9 s native library load on the first call); results can
-  differ slightly between runs on a busy machine. The lexicographic priority guarantee holds for the
-  optimum, and the solver is a heuristic. A shorter limit can stop at a worse local optimum (48.27 km
-  instead of 34.24 km on the sample data with 1 s on a cold JVM).
+  differ slightly between runs on a busy machine. Because the search starts from the greedy plan and
+  a guard compares the result with it, OR-Tools never leaves more higher-priority orders unassigned
+  than greedy; a shorter limit only means less distance improvement.
+- **At most 2 concurrent OR-Tools solves.** Each solve occupies a request thread, a CPU core and
+  native memory for the whole time limit, so further concurrent `?strategy=ortools` requests get the
+  greedy plan (`"strategy": "greedy"`, WARN logged).
+- **The plan reads vehicles and orders in two read-only transactions.** A plan computed while another
+  request is writing can mix old and new rows; each POST itself is atomic.
+- **No request size cap in the application.** Tomcat does not limit JSON body size; put a limit in a
+  reverse proxy if the service is exposed publicly.
 - **OR-Tools cap of 1,000 orders.** Larger inputs always use greedy (`"strategy": "greedy"` in the
   response).
 - **Greedy is a heuristic.** It guarantees capacity and priority order, but not the minimum distance or

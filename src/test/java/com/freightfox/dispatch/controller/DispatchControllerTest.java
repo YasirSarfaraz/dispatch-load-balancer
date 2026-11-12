@@ -247,7 +247,7 @@ class DispatchControllerTest {
             order.put("latitude", "abc");
 
             List<String> errors = assertError(postJson(ORDERS, ordersBody(order)), 400,
-                    "Invalid value 'abc' for field 'orders[0].latitude'. Expected type: number");
+                    "Invalid value for field 'orders[0].latitude'. Expected type: number");
 
             assertThat(errors).containsExactly("orders[0].latitude: must be of type number");
         }

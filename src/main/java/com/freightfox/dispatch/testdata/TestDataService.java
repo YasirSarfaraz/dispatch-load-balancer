@@ -8,6 +8,7 @@ import com.freightfox.dispatch.service.VehicleService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +22,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>The data is stored through the same {@link OrderService#upsertOrders} and
  * {@link VehicleService#upsertVehicles} used by the public POST endpoints, so the timing reflects
  * the real chunked upsert path. Existing data is deleted first so the next plan reflects exactly
- * the generated dataset.
+ * the generated dataset. Delete and insert run in ONE transaction (the services join it; the
+ * chunked upserter flushes and clears per chunk, so memory stays bounded), so a concurrent plan
+ * request sees either the old data or the new data, never an empty or partial fleet.
  *
  * <p>Replacements are serialised with a lock so two concurrent calls cannot interleave their
  * delete and insert steps (this protects a single instance, which is what the demo runs on).
@@ -61,6 +64,7 @@ public class TestDataService {
      * @throws BadRequestException if orderCount is outside 1..maxOrders or vehicleCount is outside
      *                             1..maxVehicles (app.test-data.*)
      */
+    @Transactional
     public TestDataResult replaceWithGeneratedData(int orderCount, int vehicleCount, long seed) {
         validate(orderCount, vehicleCount);
 

@@ -249,7 +249,7 @@
                 }
               ]
             },
-            "description": "OR-Tools CVRP. Falls back to greedy (strategy field shows \"greedy\") if the native library is unavailable."
+            "description": "OR-Tools CVRP, warm-started from the greedy plan. The 30-order sample is below the 1,000-order cap, so \"strategy\" must be \"ortools\"."
           },
           "response": [],
           "event": [
@@ -263,7 +263,7 @@
                   "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
                   "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
                   "const unassigned = body.unassignedOrders || [];",
-                  "pm.test(\"strategy is one of ortools/greedy\", () => pm.expect([\"ortools\",\"greedy\"]).to.include(body.strategy));",
+                  "pm.test(\"OR-Tools actually ran (sample is below the 1,000-order cap)\", () => pm.expect(body.strategy).to.eql(\"ortools\"));",
                   "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
                   "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
                   "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
@@ -1064,6 +1064,361 @@
                   "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
                   "});",
                   "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing priority",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD950\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 status\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"names the priority field\", () => pm.expect(body.errors.join(\" \")).to.include(\"priority\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Numeric priority 1 (not an enum name)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD950\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 status\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"lists the allowed priorities\", () => pm.expect(pm.response.text()).to.include(\"HIGH, MEDIUM, LOW\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong type: latitude \"abc\"",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD950\",\n      \"latitude\": \"abc\",\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 status\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"names the latitude field\", () => pm.expect(pm.response.text()).to.include(\"latitude\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Null element in orders list",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orders\": [null]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 status\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"names the list element\", () => pm.expect(pm.response.text()).to.include(\"orders\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong method: PUT orders -> 405",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD950\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"405 status\", () => pm.response.to.have.status(405));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
+                  "pm.test(\"Allow header lists supported methods\", () => pm.expect(pm.response.headers.get(\"Allow\")).to.include(\"POST\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong content type: text/plain -> 415",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD950\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"415 status\", () => pm.response.to.have.status(415));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown path -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "does-not-exist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 status\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"standard error body\", () => {",
+                  "    pm.expect(body.status).to.eql(\"error\");",
+                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(body.errors).to.be.an(\"array\");",
+                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.test(\"no stack trace leaked\", () => pm.expect(pm.response.text()).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));"
                 ]
               }
             }

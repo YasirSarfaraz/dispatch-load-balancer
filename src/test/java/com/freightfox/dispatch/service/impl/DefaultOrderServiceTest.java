@@ -102,7 +102,7 @@ class DefaultOrderServiceTest {
         assertThat(saved.getAllValues()).extracting(list -> list.stream().map(DeliveryOrder::getOrderId).toList())
                 .containsExactly(List.of("ORD1", "ORD3"), List.of("ORD4", "ORD6"), List.of("ORD7"));
 
-        verify(entityManager, times(3)).flush();
+        verify(repository, times(3)).flush();
         verify(entityManager, times(3)).clear();
     }
 
@@ -122,7 +122,7 @@ class DefaultOrderServiceTest {
         assertThat(existing.getPriority()).isEqualTo(Priority.HIGH);
         // Nothing new: no saveAll; the update is flushed by dirty checking.
         verify(repository, never()).saveAll(anyIterable());
-        verify(entityManager).flush();
+        verify(repository).flush();
     }
 
     @Test
@@ -136,7 +136,7 @@ class DefaultOrderServiceTest {
         for (int chunk = 0; chunk < 2; chunk++) {
             inOrder.verify(repository).findAllById(anyIterable());
             inOrder.verify(repository).saveAll(anyIterable());
-            inOrder.verify(entityManager).flush();
+            inOrder.verify(repository).flush();
             inOrder.verify(entityManager).clear();
         }
     }

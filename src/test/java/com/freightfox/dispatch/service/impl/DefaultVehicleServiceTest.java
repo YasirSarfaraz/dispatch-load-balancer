@@ -68,7 +68,7 @@ class DefaultVehicleServiceTest {
         verify(repository, times(3)).findAllById(ids.capture());
         assertThat(ids.getAllValues()).containsExactly(
                 List.of("VEH1", "VEH2", "VEH3"), List.of("VEH4", "VEH5", "VEH6"), List.of("VEH7"));
-        verify(entityManager, times(3)).flush();
+        verify(repository, times(3)).flush();
         verify(entityManager, times(3)).clear();
     }
 

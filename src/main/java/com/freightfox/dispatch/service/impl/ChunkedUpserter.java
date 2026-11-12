@@ -94,7 +94,10 @@ public class ChunkedUpserter {
             if (!newEntities.isEmpty()) {
                 target.repository().saveAll(newEntities);
             }
-            entityManager.flush();
+            // Flush through the Spring Data proxy (not the raw EntityManager) so a constraint violation
+            // - e.g. two concurrent requests inserting the same new ID - is translated into a
+            // DataIntegrityViolationException, which the global handler maps to 409 Conflict.
+            target.repository().flush();
             entityManager.clear();
 
             inserted += newEntities.size();

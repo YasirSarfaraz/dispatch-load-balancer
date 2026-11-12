@@ -22,6 +22,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -177,6 +183,49 @@ class OrToolsWarmStartTest {
 
         assertThat(result).isSameAs(greedy.lastResult());
         assertThat(greedy.calls()).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- bulkhead
+
+    @Test
+    void solvesBeyondTheConcurrencyLimitFallBackToGreedy() throws Exception {
+        int limit = OrToolsDispatchStrategy.MAX_CONCURRENT_SOLVES;
+        CountDownLatch entered = new CountDownLatch(limit);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger solverCalls = new AtomicInteger();
+        CvrpSolver blocking = (model, seed, timeLimit) -> {
+            solverCalls.incrementAndGet();
+            entered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return Optional.of(new CvrpSolution(seed, 0, "FAKE", true));
+        };
+        OrToolsDispatchStrategy strategy = strategy(SMALL_TIME_LIMIT, greedy(SMALL_TIME_LIMIT), blocking);
+        ExecutorService pool = Executors.newFixedThreadPool(limit);
+        try {
+            List<Future<DispatchResult>> running = new ArrayList<>();
+            for (int i = 0; i < limit; i++) {
+                running.add(pool.submit(() -> strategy.plan(SampleData.orders(), SampleData.vehicles())));
+            }
+            assertThat(entered.await(10, TimeUnit.SECONDS)).as("both slots taken").isTrue();
+
+            DispatchResult overflow = strategy.plan(SampleData.orders(), SampleData.vehicles());
+
+            assertThat(overflow.strategy()).isEqualTo(StrategyNames.GREEDY);
+            assertThat(solverCalls.get()).isEqualTo(limit);
+            release.countDown();
+            for (Future<DispatchResult> future : running) {
+                assertThat(future.get(10, TimeUnit.SECONDS).strategy()).isEqualTo(StrategyNames.ORTOOLS);
+            }
+            assertThat(strategy.plan(SampleData.orders(), SampleData.vehicles()).strategy())
+                    .as("slots are released after use").isEqualTo(StrategyNames.ORTOOLS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
     }
 
     // ---------------------------------------------------------------- helpers

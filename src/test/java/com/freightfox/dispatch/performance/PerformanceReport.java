@@ -324,8 +324,9 @@ public final class PerformanceReport {
         md.append(NEWLINE);
         md.append("The configured limit is the first row (the scenario above); the others use a strategy instance built ")
                 .append("with the production constructor and only the time limit changed. Because the objective is ")
-                .append("lexicographic (served HIGH, then MEDIUM, then LOW, then distance), the distance can grow with a ")
-                .append("longer limit while the priority mix improves.").append(NEWLINE).append(NEWLINE);
+                .append("lexicographic (served HIGH, then MEDIUM, then LOW, then distance) and the search starts from ")
+                .append("the greedy plan, a longer limit can only keep or improve the priority mix; with the mix ")
+                .append("unchanged, the extra time goes into shorter routes.").append(NEWLINE).append(NEWLINE);
     }
 
     private void renderCvrplib(StringBuilder md) {

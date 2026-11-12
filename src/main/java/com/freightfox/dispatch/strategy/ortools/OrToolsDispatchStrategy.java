@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
 
 /**
  * Dispatch strategy that solves the Capacitated Vehicle Routing Problem (CVRP) with Google
@@ -67,6 +68,11 @@ public class OrToolsDispatchStrategy implements DispatchStrategy {
     private static final Logger log = LoggerFactory.getLogger(OrToolsDispatchStrategy.class);
 
     private static final long NANOS_PER_MS = 1_000_000L;
+
+    /** Maximum OR-Tools solves running at the same time; further requests fall back to greedy. */
+    static final int MAX_CONCURRENT_SOLVES = 2;
+
+    private final Semaphore solveSlots = new Semaphore(MAX_CONCURRENT_SOLVES);
 
     private final DispatchProperties properties;
     private final DispatchStrategy fallback;
@@ -121,7 +127,21 @@ public class OrToolsDispatchStrategy implements DispatchStrategy {
             log.warn("OR-Tools skipped: native library unavailable; using {}", fallback.name());
             return fallback.plan(orders, vehicles);
         }
+        // Bulkhead: each solve holds a request thread, a full CPU core and native memory for the whole
+        // time limit; extra concurrent requests get the greedy plan instead of queueing or exhausting memory.
+        if (!solveSlots.tryAcquire()) {
+            log.warn("OR-Tools skipped: {} solves already running (limit {}); using {}",
+                    MAX_CONCURRENT_SOLVES, MAX_CONCURRENT_SOLVES, fallback.name());
+            return fallback.plan(orders, vehicles);
+        }
+        try {
+            return planWithSolver(orders, vehicles);
+        } finally {
+            solveSlots.release();
+        }
+    }
 
+    private DispatchResult planWithSolver(List<DeliveryOrder> orders, List<Vehicle> vehicles) {
         int maxCapacity = vehicles.stream().mapToInt(Vehicle::getCapacity).max().orElse(0);
         List<DeliveryOrder> routable = new ArrayList<>(orders.size());
         List<UnassignedOrder> tooHeavy = new ArrayList<>();

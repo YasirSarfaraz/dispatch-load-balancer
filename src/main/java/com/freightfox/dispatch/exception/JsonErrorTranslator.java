@@ -2,6 +2,7 @@ package com.freightfox.dispatch.exception;
 
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.exc.InputCoercionException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
@@ -37,6 +38,15 @@ final class JsonErrorTranslator {
         if (cause instanceof MismatchedInputException mismatched) {
             String path = path(mismatched);
             String type = TypeNames.of(mismatched.getTargetType());
+            return ErrorResponse.of(String.format(ErrorMessages.INVALID_FIELD_TYPE, path, type),
+                    List.of(String.format(ErrorMessages.EXPECTED_TYPE_DETAIL, path, type)));
+        }
+        // Numeric overflow (e.g. 3000000000 for an int field) is a parser-level coercion error.
+        InputCoercionException coercion = findCause(cause, InputCoercionException.class);
+        if (coercion != null) {
+            JsonMappingException mapping = findCause(cause, JsonMappingException.class);
+            String path = mapping != null ? path(mapping) : ROOT;
+            String type = TypeNames.of(coercion.getTargetType());
             return ErrorResponse.of(String.format(ErrorMessages.INVALID_FIELD_TYPE, path, type),
                     List.of(String.format(ErrorMessages.EXPECTED_TYPE_DETAIL, path, type)));
         }
