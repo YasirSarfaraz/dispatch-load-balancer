@@ -37,6 +37,8 @@ spring:
       # 10.5 must not be silently truncated to 10 for packageWeight/capacity.
       accept-float-as-int: false
       fail-on-null-for-primitives: true
+      # "priority": 1 must be rejected, not silently read as the enum at index 1 (MEDIUM).
+      fail-on-numbers-for-enums: true
     mapper:
       accept-case-insensitive-enums: true
   mvc:
