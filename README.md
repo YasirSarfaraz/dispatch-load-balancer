@@ -9,9 +9,9 @@ distance is minimized. Distances between coordinates use the **Haversine** formu
 are returned with a reason instead of failing the request. The service has no UI: it is a pure REST
 API, documented with Swagger/OpenAPI and testable with Postman or curl.
 
-- Live URL: <TBD - add Render URL>
-- Swagger UI: <live-url>/swagger-ui.html (locally: http://localhost:8080/swagger-ui.html)
-- OpenAPI spec: <live-url>/v3/api-docs
+- Live URL: https://dispatch-load-balancer-yl5j.onrender.com (Render free plan: the first request after about 15 idle minutes takes about 50 s while the instance wakes up)
+- Swagger UI: https://dispatch-load-balancer-yl5j.onrender.com/swagger-ui.html (locally: http://localhost:8080/swagger-ui.html)
+- OpenAPI spec: https://dispatch-load-balancer-yl5j.onrender.com/v3/api-docs
 - Loom video: <TBD - add Loom link>
 - Postman collection: [`postman/DispatchLoadBalancer.postman_collection.json`](postman/DispatchLoadBalancer.postman_collection.json)
 
