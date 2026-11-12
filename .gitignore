@@ -1,0 +1,34 @@
+# Assignment brief (kept out of the repository)
+*.pdf
+
+# Build output
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+.sts4-cache/
+bin/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and local env
+*.log
+logs/
+.env
+*.env.local
+
+# Tooling
+.claude/
+graphify-out/

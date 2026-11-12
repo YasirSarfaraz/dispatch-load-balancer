@@ -1,0 +1,81 @@
+server:
+  port: ${PORT:8080}
+  error:
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+  tomcat:
+    # Large batches (e.g. 50,000 orders, roughly 10 MB of JSON) must be accepted.
+    max-swallow-size: 50MB
+    max-http-form-post-size: 50MB
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+spring:
+  application:
+    name: dispatch-load-balancer
+  datasource:
+    url: jdbc:h2:mem:dispatchdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+  jackson:
+    deserialization:
+      # 10.5 must not be silently truncated to 10 for packageWeight/capacity.
+      accept-float-as-int: false
+      fail-on-null-for-primitives: true
+    mapper:
+      accept-case-insensitive-enums: true
+  mvc:
+    problemdetails:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+app:
+  dispatch:
+    # Upsert works in chunks: one findAllById + one saveAll per chunk.
+    upsert-chunk-size: 1000
+    greedy:
+      two-opt-max-iterations: 1000
+      two-opt-time-budget: 25ms
+    ortools:
+      time-limit: 3s
+      # The distance matrix grows as N^2; above this many orders greedy is used instead.
+      max-orders: 1000
+  test-data:
+    enabled: true
+    max-orders: 50000
+    max-vehicles: 2000
+
+logging:
+  level:
+    com.freightfox.dispatch: INFO

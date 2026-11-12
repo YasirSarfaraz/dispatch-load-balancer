@@ -1,0 +1,11 @@
+# Activate with SPRING_PROFILES_ACTIVE=prod. Tip for PostgreSQL batching: append
+# ?reWriteBatchedInserts=true to DB_URL so the driver rewrites batches into multi-row INSERTs.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update

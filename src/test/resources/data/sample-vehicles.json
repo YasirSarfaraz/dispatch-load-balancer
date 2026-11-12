@@ -1,0 +1,9 @@
+{
+  "vehicles": [
+    {"vehicleId": "VEH001", "capacity": 100, "currentLatitude": 28.7041, "currentLongitude": 77.1025, "currentAddress": "Karol Bagh, Delhi, India"},
+    {"vehicleId": "VEH002", "capacity": 80, "currentLatitude": 28.5355, "currentLongitude": 77.391, "currentAddress": "Sector 18, Noida, Uttar Pradesh, India"},
+    {"vehicleId": "VEH003", "capacity": 120, "currentLatitude": 28.4595, "currentLongitude": 77.0266, "currentAddress": "Cyber Hub, Gurgaon, Haryana, India"},
+    {"vehicleId": "VEH004", "capacity": 90, "currentLatitude": 28.6139, "currentLongitude": 77.209, "currentAddress": "Connaught Place, Delhi, India"},
+    {"vehicleId": "VEH005", "capacity": 110, "currentLatitude": 28.7041, "currentLongitude": 77.1025, "currentAddress": "Karol Bagh, Delhi, India"}
+  ]
+}
