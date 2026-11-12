@@ -87,8 +87,8 @@ class CvrplibBenchmarkTest {
         settings.put("Priorities", "all customers " + CvrplibAdapter.PRIORITY);
         settings.put("Greedy 2-opt", TWO_OPT_MAX_PASSES + " passes / " + TWO_OPT_TIME_BUDGET.toMillis()
                 + " ms per vehicle");
-        settings.put("OR-Tools time limit", ORTOOLS_TIME_LIMIT.toMillis() + " ms (PATH_CHEAPEST_ARC + "
-                + "GUIDED_LOCAL_SEARCH)");
+        settings.put("OR-Tools time limit", ORTOOLS_TIME_LIMIT.toMillis() + " ms (greedy warm start + "
+                + "GUIDED_LOCAL_SEARCH; PATH_CHEAPEST_ARC only without a seed)");
         settings.put("Thresholds", "greedy plan < " + GREEDY_PLAN_LIMIT_MS + " ms; OR-Tools plan < time limit + "
                 + ORTOOLS_OVERHEAD_MS + " ms");
         settings.put("OR-Tools native load (before any timed plan)", nativeLoadMs + " ms");

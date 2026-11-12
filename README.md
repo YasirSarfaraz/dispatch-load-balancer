@@ -336,9 +336,23 @@ Google OR-Tools routing solver.
 - **Capacity dimension**: demand = `packageWeight` per order node (0 for start and end nodes), per
   vehicle capacity, no slack, cumul starts at 0.
 - **Optional visits**: every order node is a single-node disjunction with a drop penalty by priority.
-- **Search**: `PATH_CHEAPEST_ARC` first solution, then `GUIDED_LOCAL_SEARCH` until the time limit
-  `app.dispatch.ortools.time-limit` (default 3 s). Guided Local Search uses the whole limit, so an
-  OR-Tools plan takes about 3 s (plus about 0.9 s to load the native library on the first call).
+- **Search**: the solver is **warm-started from the greedy plan** (greedy runs once per call, in
+  milliseconds; its routes are loaded with `readAssignmentFromRoutes` and solved with
+  `solveFromAssignmentWithParameters`), then `GUIDED_LOCAL_SEARCH` improves it until the time limit
+  `app.dispatch.ortools.time-limit` (default 3 s). `PATH_CHEAPEST_ARC` is configured as the first
+  solution strategy and is used when no seed is available (empty greedy plan, or a seed OR-Tools
+  rejects). Guided Local Search uses the whole limit, so an OR-Tools plan takes about 3 s (plus about
+  0.9 s to load the native library on the first call).
+- **Why the warm start**: with a cold `PATH_CHEAPEST_ARC` start, the performance suite showed that on
+  capacity-scarce data (1,000 orders x 50 vehicles, 26,250 weight vs 15,124 capacity) a 3 s search left
+  110 HIGH orders unassigned while serving MEDIUM/LOW ones; Guided Local Search was still repairing it
+  at 30 s. Starting from greedy (which places HIGH first by construction) and minimizing the
+  lexicographic objective below means OR-Tools can never drop more HIGH (then MEDIUM, then LOW) orders
+  than greedy. The trade-off: on the CVRPLIB benchmark the greedy seed gives a worse starting shape on
+  two of three instances (see docs/PERFORMANCE.md).
+- **Priority guard**: after solving, the unassigned counts per priority are compared with greedy's
+  (HIGH, then MEDIUM, then LOW). If OR-Tools is worse, a WARN is logged and the greedy plan is returned
+  (`"strategy": "greedy"`).
 - **Result**: dropped orders are reported with `Dropped by optimizer: insufficient capacity`. Loads
   and distances in km are recomputed from the real coordinates, and the solution is re-checked
   (capacity, each order at most once, one route per vehicle) before it is returned.

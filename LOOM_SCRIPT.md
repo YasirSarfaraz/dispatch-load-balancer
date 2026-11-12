@@ -101,8 +101,9 @@ exceeds capacity of every vehicle'. Nothing fails; every order is accounted for 
 **Say:** "Now the same data with Google OR-Tools. It is modelled as a CVRP with one start node per
 vehicle and one shared dummy end node with zero cost, which gives open routes. Each order is optional
 with a drop penalty, and the penalties are lexicographic: dropping one HIGH costs more than dropping
-every MEDIUM and LOW order plus any distance, and so on down. It uses path cheapest arc and guided
-local search with a 3-second limit. On this sample greedy needs 73.42 km; OR-Tools found 34.24 km on
+every MEDIUM and LOW order plus any distance, and so on down. The solver is warm-started from the
+greedy plan, so it can never drop more HIGH orders than greedy, and guided local search then improves
+it within a 3-second limit. On this sample greedy needs 73.42 km; OR-Tools found 34.24 km on
 my machine and serves 24 orders instead of 22, dropping 6 LOW orders with 'Dropped by optimizer:
 insufficient capacity'. The time-limited search can vary slightly between runs, but the constraints
 always hold. The strategy field tells you what actually ran: above 1,000 orders, or if the native

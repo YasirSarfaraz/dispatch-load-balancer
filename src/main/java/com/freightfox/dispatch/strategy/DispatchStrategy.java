@@ -22,7 +22,9 @@ import java.util.List;
  *   <li>unassignedOrders are sorted by priority (HIGH first), then orderId.</li>
  *   <li>Empty orders list: every vehicle gets an empty route. The caller guarantees
  *       vehicles is non-empty.</li>
- *   <li>Deterministic: the same input gives the same output.</li>
+ *   <li>Deterministic where the algorithm allows it: greedy always returns the same output for
+ *       the same input; OR-Tools runs a time-limited search, so its routes may differ slightly
+ *       between runs while every constraint above still holds.</li>
  * </ul>
  */
 public interface DispatchStrategy {

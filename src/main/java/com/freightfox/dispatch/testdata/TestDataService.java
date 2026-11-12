@@ -33,6 +33,10 @@ public class TestDataService {
     static final String VEHICLES_PARAM = "vehicles";
     private static final int MIN_COUNT = 1;
     private static final String MESSAGE_SEPARATOR = "; ";
+    /** Reason for an out-of-range count, e.g. "must be between 1 and 50000". */
+    private static final String RANGE_REASON = "must be between %d and %d";
+    private static final String MESSAGE_FORMAT = "%s %s";
+    private static final String ERROR_FORMAT = "%s: %s";
 
     private static final Logger log = LoggerFactory.getLogger(TestDataService.class);
 
@@ -100,9 +104,9 @@ public class TestDataService {
     private static void checkRange(String param, int value, int max, List<String> messages,
                                    List<String> errors) {
         if (value < MIN_COUNT || value > max) {
-            String reason = "must be between " + MIN_COUNT + " and " + max;
-            messages.add(param + " " + reason);
-            errors.add(param + ": " + reason);
+            String reason = RANGE_REASON.formatted(MIN_COUNT, max);
+            messages.add(MESSAGE_FORMAT.formatted(param, reason));
+            errors.add(ERROR_FORMAT.formatted(param, reason));
         }
     }
 }

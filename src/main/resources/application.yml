@@ -5,7 +5,7 @@ server:
     include-message: never
     include-binding-errors: never
   tomcat:
-    # Large batches (e.g. 50,000 orders, roughly 10 MB of JSON) must be accepted.
+    # Large batches (e.g. 50,000 orders, about 7 MB of JSON) must be accepted.
     max-swallow-size: 50MB
     max-http-form-post-size: 50MB
   compression:

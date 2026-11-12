@@ -24,14 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
  * Registered only when {@code app.test-data.enabled=true} (the default).
  */
 @RestController
-@RequestMapping(TestDataController.BASE_PATH)
+@RequestMapping(ApiMessages.BASE_PATH)
 @ConditionalOnProperty(prefix = "app.test-data", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Tag(name = "Test data (demo)",
         description = "Demo/testing only. Generates a reproducible dataset around 30 Indian cities and "
                 + "REPLACES all stored orders and vehicles with it. Disable with app.test-data.enabled=false.")
 public class TestDataController {
 
-    public static final String BASE_PATH = "/api/dispatch";
     public static final String TEST_DATA_PATH = "/test-data";
     public static final String DEFAULT_ORDERS = "5000";
     public static final String DEFAULT_VEHICLES = "100";

@@ -298,11 +298,8 @@ public final class PerformanceReport {
         }
         findings.forEach(f -> md.append(f).append(NEWLINE));
         md.append(NEWLINE);
-        md.append("This is a search limitation, not a capacity violation (all invariants hold): the drop penalties make ")
-                .append("one HIGH order worth more than every MEDIUM and LOW order, but the PATH_CHEAPEST_ARC first ")
-                .append("solution is built from arc costs, and Guided Local Search only slowly swaps served LOW/MEDIUM ")
-                .append("orders for dropped HIGH ones when capacity is scarce. The time-limit table below shows the HIGH ")
-                .append("count still rising at 10 s and 30 s. Greedy guarantees the priority rule by construction.")
+        md.append("This should not happen: OR-Tools is warm-started from the greedy plan and guarded against ")
+                .append("dropping more HIGH/MEDIUM/LOW orders than greedy. Investigate the OR-Tools strategy logs.")
                 .append(NEWLINE).append(NEWLINE);
     }
 
@@ -388,7 +385,10 @@ public final class PerformanceReport {
                 - Production uses Haversine on lat/lon, priorities, and may **drop** orders that do not fit; the
                   benchmark must visit every customer. If a strategy dropped customers, its gap is not comparable
                   (fewer customers served makes a tour cheaper) and the table says so.
-                - OR-Tools ran with the production settings (PATH_CHEAPEST_ARC + GUIDED_LOCAL_SEARCH, 3 s limit);
+                - OR-Tools ran with the production settings (warm start from the greedy plan + GUIDED_LOCAL_SEARCH,
+                  3 s limit). The greedy seed protects the priority rule in production but is a worse starting
+                  shape than PATH_CHEAPEST_ARC on these pure-distance instances (cold-start gaps were 8.4%, 6.3%
+                  and 14.0% in an earlier run);
                   state-of-the-art BKS come from hours of specialised search, so a gap of several percent is expected.
 
                 """);

@@ -341,8 +341,8 @@ class DispatchPerformanceTest {
                 + TestDataGenerator.MEDIUM_PERCENT + "% MEDIUM / rest LOW");
         values.put("Greedy 2-opt max passes per vehicle", Integer.toString(greedy.twoOptMaxIterations()));
         values.put("Greedy 2-opt time budget per vehicle", greedy.twoOptTimeBudget().toMillis() + " ms");
-        values.put("OR-Tools time limit", orTools.timeLimit().toMillis() + " ms (PATH_CHEAPEST_ARC + "
-                + "GUIDED_LOCAL_SEARCH)");
+        values.put("OR-Tools time limit", orTools.timeLimit().toMillis() + " ms (greedy warm start + "
+                + "GUIDED_LOCAL_SEARCH; PATH_CHEAPEST_ARC only without a seed)");
         values.put("OR-Tools max orders", orTools.maxOrders() + " (falls back to greedy only above this)");
         values.put("Upsert chunk size", Integer.toString(properties.upsertChunkSize()));
         values.put("Hibernate JDBC batch size",
