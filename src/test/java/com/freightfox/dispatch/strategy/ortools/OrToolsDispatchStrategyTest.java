@@ -10,6 +10,7 @@ import com.freightfox.dispatch.strategy.StrategyNames;
 import com.freightfox.dispatch.strategy.UnassignedOrder;
 import com.freightfox.dispatch.strategy.UnassignmentReasons;
 import com.freightfox.dispatch.strategy.VehicleRoute;
+import com.freightfox.dispatch.strategy.greedy.GreedyPriorityDispatchStrategy;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +59,7 @@ class OrToolsDispatchStrategyTest {
         List<Vehicle> vehiclesCopy = List.copyOf(vehicles);
 
         long start = System.nanoTime();
-        DispatchResult result = strategy(SAMPLE_TIME_LIMIT, 1000).plan(orders, vehicles);
+        DispatchResult result = withRealGreedy(SAMPLE_TIME_LIMIT).plan(orders, vehicles);
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
         logPlan(result, elapsedMs);
 
@@ -179,9 +180,9 @@ class OrToolsDispatchStrategyTest {
         DeliveryOrder tooHeavy = order("BIG", 81, Priority.HIGH, 1);
         DeliveryOrder fits = order("OK", 80, Priority.LOW, 1);
         List<String> modelOrderIds = new ArrayList<>();
-        CvrpSolver capturing = (model, limit) -> {
+        CvrpSolver capturing = (model, seed, limit) -> {
             model.orders().forEach(o -> modelOrderIds.add(o.getOrderId()));
-            return new OrToolsCvrpSolver().solve(model, limit);
+            return new OrToolsCvrpSolver().solve(model, seed, limit);
         };
 
         DispatchResult result = strategy(SMALL_TIME_LIMIT, 1000, realLoader, capturing)
@@ -217,7 +218,7 @@ class OrToolsDispatchStrategyTest {
     void aboveMaxOrdersDelegatesToFallback() {
         List<DeliveryOrder> orders = SampleData.orders().subList(0, 6);
         AtomicInteger solverCalls = new AtomicInteger();
-        CvrpSolver counting = (model, limit) -> {
+        CvrpSolver counting = (model, seed, limit) -> {
             solverCalls.incrementAndGet();
             return Optional.empty();
         };
@@ -260,7 +261,7 @@ class OrToolsDispatchStrategyTest {
 
     @Test
     void noSolutionFallsBack() {
-        DispatchResult result = strategy(SMALL_TIME_LIMIT, 1000, realLoader, (model, limit) -> Optional.empty())
+        DispatchResult result = strategy(SMALL_TIME_LIMIT, 1000, realLoader, (model, seed, limit) -> Optional.empty())
                 .plan(SampleData.orders(), SampleData.vehicles());
 
         assertThat(result.strategy()).isEqualTo(StrategyNames.GREEDY);
@@ -289,7 +290,8 @@ class OrToolsDispatchStrategyTest {
     void solutionOverCapacityIsRejectedAndFallsBack() {
         Vehicle vehicle = vehicle("V1", 10, ORIGIN_LAT, ORIGIN_LON);
         List<DeliveryOrder> orders = List.of(order("A", 8, Priority.HIGH, 1), order("B", 8, Priority.HIGH, 2));
-        CvrpSolver overloading = (model, limit) -> Optional.of(new CvrpSolution(List.of(List.of(0, 1)), 0, "FAKE"));
+        CvrpSolver overloading = (model, seed, limit) ->
+                Optional.of(new CvrpSolution(List.of(List.of(0, 1)), 0, "FAKE", false));
 
         DispatchResult result = strategy(SMALL_TIME_LIMIT, 1000, realLoader, overloading).plan(orders, List.of(vehicle));
 
@@ -300,8 +302,8 @@ class OrToolsDispatchStrategyTest {
     void solutionVisitingAnOrderTwiceIsRejectedAndFallsBack() {
         List<Vehicle> vehicles = List.of(vehicle("V1", 100, ORIGIN_LAT, ORIGIN_LON), vehicle("V2", 100, 0, 0));
         List<DeliveryOrder> orders = List.of(order("A", 1, Priority.HIGH, 1));
-        CvrpSolver duplicating = (model, limit) ->
-                Optional.of(new CvrpSolution(List.of(List.of(0), List.of(0)), 0, "FAKE"));
+        CvrpSolver duplicating = (model, seed, limit) ->
+                Optional.of(new CvrpSolution(List.of(List.of(0), List.of(0)), 0, "FAKE", false));
 
         assertThat(strategy(SMALL_TIME_LIMIT, 1000, realLoader, duplicating).plan(orders, vehicles).strategy())
                 .isEqualTo(StrategyNames.GREEDY);
@@ -311,7 +313,7 @@ class OrToolsDispatchStrategyTest {
     void solutionWithWrongRouteCountIsRejectedAndFallsBack() {
         List<Vehicle> vehicles = List.of(vehicle("V1", 100, ORIGIN_LAT, ORIGIN_LON));
         List<DeliveryOrder> orders = List.of(order("A", 1, Priority.HIGH, 1));
-        CvrpSolver wrong = (model, limit) -> Optional.of(new CvrpSolution(List.of(), 0, "FAKE"));
+        CvrpSolver wrong = (model, seed, limit) -> Optional.of(new CvrpSolution(List.of(), 0, "FAKE", false));
 
         assertThat(strategy(SMALL_TIME_LIMIT, 1000, realLoader, wrong).plan(orders, vehicles).strategy())
                 .isEqualTo(StrategyNames.GREEDY);
@@ -447,9 +449,16 @@ class OrToolsDispatchStrategyTest {
     }
 
     private static CvrpSolver failingSolver() {
-        return (model, limit) -> {
+        return (model, seed, limit) -> {
             throw new IllegalStateException("simulated solver crash");
         };
+    }
+
+    /** The production wiring: the real greedy strategy as warm-start seed and fallback. */
+    private OrToolsDispatchStrategy withRealGreedy(Duration timeLimit) {
+        DispatchProperties properties = properties(timeLimit, 1000);
+        return new OrToolsDispatchStrategy(haversine, properties,
+                new GreedyPriorityDispatchStrategy(haversine, properties), realLoader, new OrToolsCvrpSolver());
     }
 
     private OrToolsDispatchStrategy strategy(Duration timeLimit, int maxOrders) {

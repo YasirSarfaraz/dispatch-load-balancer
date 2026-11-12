@@ -32,11 +32,30 @@ import java.util.Optional;
  * {@link UnassignmentReasons#EXCEEDS_EVERY_VEHICLE}; orders the solver drops are reported with
  * {@link UnassignmentReasons#DROPPED_BY_OPTIMIZER}.
  *
+ * <p><b>Warm start from greedy.</b> A PATH_CHEAPEST_ARC first solution is built from arc costs
+ * only and ignores the drop penalties; when capacity is scarce, Guided Local Search cannot swap
+ * enough served MEDIUM/LOW orders for dropped HIGH ones within a few seconds (measured on 1,000 x 50
+ * generated orders: 110 HIGH orders dropped at 3 s, while greedy served 110 more HIGH orders on the
+ * same data). So the injected fallback (greedy) strategy plans first, which takes milliseconds, and
+ * its routes are the <em>seed</em> of the search ({@link SeedRoutes}, then
+ * {@code readAssignmentFromRoutes} + {@code solveFromAssignmentWithParameters} in
+ * {@link OrToolsCvrpSolver}). Local search only accepts improvements of the objective, and the drop
+ * penalties are lexicographic, so the solver result never drops more HIGH (then MEDIUM, then LOW)
+ * orders than greedy; the remaining time serves extra orders and shortens the routes.
+ * PATH_CHEAPEST_ARC is used only when there is no usable seed (greedy assigned nothing, or OR-Tools
+ * rejected the seed).
+ *
+ * <p><b>Priority guard.</b> After solving, the unassigned counts per priority of the OR-Tools
+ * result are compared lexicographically with the greedy plan's ({@link UnassignedCounts}). If
+ * OR-Tools is worse (which the warm start should make impossible), a WARN is logged and the greedy
+ * plan is returned; equal or better keeps the OR-Tools plan.
+ *
  * <p><b>Fallback.</b> {@link #plan} never throws for solver problems. It logs a WARN and returns
- * the injected fallback (greedy) strategy's result, whose {@code strategy()} names what actually
- * ran, when: there are more than {@code app.dispatch.ortools.max-orders} orders (the distance
- * matrix is N^2), the native library cannot be loaded, the solver finds no solution, or anything
- * unexpected fails in the solver path.
+ * the greedy plan, whose {@code strategy()} names what actually ran, when: there are more than
+ * {@code app.dispatch.ortools.max-orders} orders (the distance matrix is N^2), the native library
+ * cannot be loaded, the solver finds no solution, anything unexpected fails in the solver path, or
+ * the guard above rejects the solver result. Within one call greedy runs at most once: the plan
+ * computed for the seed is reused by every fallback after it.
  *
  * <p><b>Determinism.</b> Guided Local Search runs until the time limit, so on a busy machine the
  * number of improvement steps, and therefore the plan, can differ slightly between runs. The
@@ -46,6 +65,8 @@ import java.util.Optional;
 public class OrToolsDispatchStrategy implements DispatchStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(OrToolsDispatchStrategy.class);
+
+    private static final long NANOS_PER_MS = 1_000_000L;
 
     private final DispatchProperties properties;
     private final DispatchStrategy fallback;
@@ -57,7 +78,8 @@ public class OrToolsDispatchStrategy implements DispatchStrategy {
     /**
      * @param distanceCalculator distance between coordinates (Haversine)
      * @param properties         time limit and max-orders cap
-     * @param fallback           strategy used when OR-Tools cannot or should not run (greedy)
+     * @param fallback           greedy: the warm-start seed, and the plan returned when OR-Tools cannot or
+     *                           should not run or its result fails the priority guard
      * @param nativeLoader       lazy, cached loader of the OR-Tools native libraries
      */
     @Autowired
@@ -99,43 +121,67 @@ public class OrToolsDispatchStrategy implements DispatchStrategy {
             log.warn("OR-Tools skipped: native library unavailable; using {}", fallback.name());
             return fallback.plan(orders, vehicles);
         }
-        try {
-            return solve(orders, vehicles).orElseGet(() -> {
-                log.warn("OR-Tools found no solution within {}; using {}",
-                        properties.ortools().timeLimit(), fallback.name());
-                return fallback.plan(orders, vehicles);
-            });
-        } catch (RuntimeException | LinkageError e) {
-            log.warn("OR-Tools failed ({}); using {}", e.toString(), fallback.name(), e);
-            return fallback.plan(orders, vehicles);
-        }
-    }
 
-    private Optional<DispatchResult> solve(List<DeliveryOrder> orders, List<Vehicle> vehicles) {
         int maxCapacity = vehicles.stream().mapToInt(Vehicle::getCapacity).max().orElse(0);
         List<DeliveryOrder> routable = new ArrayList<>(orders.size());
-        List<UnassignedOrder> unassigned = new ArrayList<>();
+        List<UnassignedOrder> tooHeavy = new ArrayList<>();
         for (DeliveryOrder order : orders) {
             if (order.getPackageWeight() > maxCapacity) {
-                unassigned.add(new UnassignedOrder(order, UnassignmentReasons.EXCEEDS_EVERY_VEHICLE));
+                tooHeavy.add(new UnassignedOrder(order, UnassignmentReasons.EXCEEDS_EVERY_VEHICLE));
             } else {
                 routable.add(order);
             }
         }
         if (routable.isEmpty()) {
-            return Optional.of(assembler.assemble(name(), vehicles, emptyStops(vehicles.size()), unassigned));
+            return assembler.assemble(name(), vehicles, emptyStops(vehicles.size()), tooHeavy);
         }
 
+        // The seed of the search, and the plan every fallback below returns (greedy runs once per call).
+        DispatchResult greedy = fallback.plan(orders, vehicles);
+        try {
+            Optional<DispatchResult> solved = solve(orders.size(), routable, tooHeavy, vehicles, greedy);
+            if (solved.isEmpty()) {
+                log.warn("OR-Tools found no solution within {}; using {}",
+                        properties.ortools().timeLimit(), fallback.name());
+                return greedy;
+            }
+            return keepPriorityOrder(solved.get(), greedy);
+        } catch (RuntimeException | LinkageError e) {
+            log.warn("OR-Tools failed ({}); using {}", e.toString(), fallback.name(), e);
+            return greedy;
+        }
+    }
+
+    /**
+     * The priority guard: returns the greedy plan if the OR-Tools plan leaves lexicographically more
+     * orders unassigned (HIGH, then MEDIUM, then LOW), otherwise the OR-Tools plan.
+     */
+    private DispatchResult keepPriorityOrder(DispatchResult orTools, DispatchResult greedy) {
+        UnassignedCounts orToolsCounts = UnassignedCounts.of(orTools);
+        UnassignedCounts greedyCounts = UnassignedCounts.of(greedy);
+        if (orToolsCounts.isWorseThan(greedyCounts)) {
+            log.warn("OR-Tools plan leaves more higher-priority orders unassigned than {} (unassigned H/M/L {} vs {}); "
+                    + "using {}", fallback.name(), orToolsCounts, greedyCounts, fallback.name());
+            return greedy;
+        }
+        return orTools;
+    }
+
+    private Optional<DispatchResult> solve(int orderCount, List<DeliveryOrder> routable,
+                                           List<UnassignedOrder> tooHeavy, List<Vehicle> vehicles,
+                                           DispatchResult seedPlan) {
         Duration timeLimit = properties.ortools().timeLimit();
         long startNanos = System.nanoTime();
         CvrpModel model = modelBuilder.build(routable, vehicles);
-        Optional<CvrpSolution> solution = solver.solve(model, timeLimit);
-        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+        List<List<Integer>> seed = SeedRoutes.fromPlan(model, seedPlan);
+        Optional<CvrpSolution> solution = solver.solve(model, seed, timeLimit);
+        long elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MS;
         if (solution.isEmpty()) {
             return Optional.empty();
         }
 
         List<List<DeliveryOrder>> stops = toStops(model, solution.get());
+        List<UnassignedOrder> unassigned = new ArrayList<>(tooHeavy);
         boolean[] served = new boolean[model.numOrders()];
         solution.get().routes().forEach(route -> route.forEach(orderIndex -> served[orderIndex] = true));
         int dropped = 0;
@@ -145,10 +191,11 @@ public class OrToolsDispatchStrategy implements DispatchStrategy {
                 dropped++;
             }
         }
-        log.info("OR-Tools solved: orders={}, vehicles={}, excludedTooHeavy={}, dropped={}, objective={}, "
-                        + "status={}, costUnitMetres={}, solveTimeMs={}",
-                orders.size(), vehicles.size(), orders.size() - routable.size(), dropped,
-                solution.get().objective(), solution.get().status(), model.penalties().costUnitMetres(), elapsedMs);
+        log.info("OR-Tools solved: orders={}, vehicles={}, excludedTooHeavy={}, dropped={}, seedStops={}, "
+                        + "warmStarted={}, objective={}, status={}, costUnitMetres={}, solveTimeMs={}",
+                orderCount, vehicles.size(), tooHeavy.size(), dropped, seed.stream().mapToInt(List::size).sum(),
+                solution.get().warmStarted(), solution.get().objective(), solution.get().status(),
+                model.penalties().costUnitMetres(), elapsedMs);
         return Optional.of(assembler.assemble(name(), vehicles, stops, unassigned));
     }
 
