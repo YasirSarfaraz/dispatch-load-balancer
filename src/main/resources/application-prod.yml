@@ -11,8 +11,8 @@ spring:
       # Small pool: the free instance has one shared CPU and the free database a low connection limit.
       maximum-pool-size: 5
       minimum-idle: 1
-      connection-timeout: 10s
-      max-lifetime: 15m
+      connection-timeout: 10000   # ms (Hikari properties are plain milliseconds)
+      max-lifetime: 900000        # ms, 15 minutes
   jpa:
     hibernate:
       ddl-auto: validate

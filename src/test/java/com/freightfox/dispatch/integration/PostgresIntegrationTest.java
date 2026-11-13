@@ -7,10 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -28,18 +30,28 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The full application (Flyway migrations, JPA upsert with JDBC batching, both strategies) against a real
- * PostgreSQL 16, the production database. Runs wherever Docker is available (always in CI) and is skipped
- * otherwise; every other test uses in-memory H2.
+ * The full application with the real {@code prod} profile (application-prod.yml: PostgreSQL driver,
+ * HikariCP settings, Flyway, schema validation) against a real PostgreSQL 16. The container's address and
+ * credentials are passed through the same DB_* variables Render injects. Runs wherever Docker is available
+ * (always in CI) and is skipped otherwise; every other test uses in-memory H2.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("prod")
 @Testcontainers(disabledWithoutDocker = true)
 class PostgresIntegrationTest {
 
     @Container
-    @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void renderStyleEnvironment(DynamicPropertyRegistry registry) {
+        registry.add("DB_HOST", POSTGRES::getHost);
+        registry.add("DB_PORT", () -> POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT));
+        registry.add("DB_NAME", POSTGRES::getDatabaseName);
+        registry.add("DB_USERNAME", POSTGRES::getUsername);
+        registry.add("DB_PASSWORD", POSTGRES::getPassword);
+    }
 
     @Autowired
     private MockMvc mockMvc;
