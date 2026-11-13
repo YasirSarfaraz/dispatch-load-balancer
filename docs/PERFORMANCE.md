@@ -3,7 +3,7 @@
 [Back to README](../README.md)
 
 Every figure below was measured against the **live deployment** at
-https://dispatch-load-balancer-yl5j.onrender.com, which runs the `prod` profile on **PostgreSQL 16**
+https://dispatch-load-balancer-yl5j.onrender.com, which runs on **PostgreSQL 16**
 (Render managed database, same region as the service). The figures come from the Postman collection's
 folder **6. Performance (large datasets)**, which goes through the public API. The collection was run
 twice in a row on 2026-11-13, and all 74 requests and 398 assertions passed in both runs. You can

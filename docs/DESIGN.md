@@ -37,7 +37,7 @@ In the order of the diagram, from the client inwards:
 | **Order & Vehicle services** | Upsert by ID through the shared `ChunkedUpserter`: per 1,000 rows, one `SELECT`, then batched `INSERT`/`UPDATE`. Also the read and delete operations. | `service.impl` |
 | **Test data (demo)** | `POST /test-data` replaces all data with a generated dataset, in one transaction. | `controller.TestDataController`, `testdata.TestDataService` |
 | **TestDataGenerator** | Seeded, reproducible orders and vehicles around 30 Indian cities. | `testdata` |
-| **PostgreSQL 16** | Production database (Render, `prod` profile); H2 in memory for local runs and tests. Flyway owns the schema. | `db/migration`, `application-prod.yml`, `render.yaml` |
+| **PostgreSQL 16** | The only database: Render in production, `compose.yaml` locally, Testcontainers in tests. Flyway owns the schema. | `db/migration`, `application.yml`, `render.yaml` |
 
 ### Request flows
 
@@ -187,8 +187,8 @@ com.freightfox.dispatch
   `ORD000001...` and `VEH0001...`, which never collide with the sample IDs. Same seed, same data.
 
 **Operations**
-- Production runs on PostgreSQL 16 (`prod` profile, Render managed database). Local runs and the test
-  suite use in-memory H2, so the project runs with nothing but a JDK.
+- PostgreSQL 16 is the only database: Render's managed database in production, `compose.yaml` locally,
+  and a Testcontainers instance for the test suite, so tests exercise the production engine.
 - Flyway owns the schema (versioned migrations, primary keys, CHECK constraints) on both databases;
   Hibernate only validates it, so entity/schema drift stops the application at start-up.
 - The OpenAPI server URL is relative (`/`), so Swagger "Try it out" works locally, in Docker and on

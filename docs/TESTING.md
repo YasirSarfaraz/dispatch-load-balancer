@@ -11,8 +11,7 @@ The project is tested on three levels:
 
 | Suite | Scope | Result |
 |---|---|---|
-| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests | **1,140** tests, 0 failures, 0 skipped |
-| PostgreSQL integration (`PostgresIntegrationTest`) | The app with the `prod` profile against PostgreSQL 16 (Testcontainers) | 6 of the 1,140; they need Docker and are skipped automatically without it |
+| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests, every Spring test on a real PostgreSQL 16 (Testcontainers) | **1,142** tests, 0 failures, 0 skipped |
 | JaCoCo | Coverage of the JUnit suite (build fails below 85% lines) | **97.93%** lines (1,232 of 1,258), **87.93%** branches (386 of 439) |
 | Postman | 74 requests against the live server | **398** assertions, all passing |
 
@@ -27,7 +26,7 @@ The project is tested on three levels:
 ./mvnw verify     # tests + JaCoCo report (target/site/jacoco/index.html) + 85% line-coverage gate
 ```
 
-The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It has 40 test classes under
+The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It has 41 test classes under
 `src/test/java`, plus shared test helpers.
 
 | Area | Key test classes | What they prove |
@@ -37,12 +36,12 @@ The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It ha
 | OR-Tools | `OrToolsDispatchStrategyTest`, `OrToolsWarmStartTest`, `OrToolsCvrpSolverTest`, `SeedRoutesTest`, `UnassignedCountsTest`, `DropPenaltiesTest`, `CvrpModelBuilderTest`, `OrToolsNativeLoaderTest` | HIGH kept over MEDIUM/LOW, open routes, the greedy warm start, the priority guard, the 2-solve bulkhead, every fallback (cap, native load failure, no solution, solver exception, invalid solution), penalty arithmetic and overflow handling |
 | Registry | `DispatchStrategyRegistryTest` | Case-insensitive lookup, default, unknown and duplicate names |
 | Services | `DefaultOrderServiceTest`, `DefaultVehicleServiceTest`, `DefaultDispatchServiceTest`, `DispatchSnapshotConsistencyIntegrationTest` | Upsert behaviour, ordering of checks, no-vehicles error; vehicles and orders read in one read-only REPEATABLE READ transaction, planning outside any transaction |
-| Persistence | `UpsertJdbcBatchingIntegrationTest`, `ChunkedUpserterConflictIntegrationTest`, `PostgresIntegrationTest` | JDBC batching proven by counting real SQL statements (120 new orders = 1 SELECT + 3 batches of 50/50/20; 2,500 orders with 500 existing = 3 SELECTs, 40 INSERT batches, 10 UPDATE batches; unchanged rows = no SQL); a concurrent duplicate insert returns 409, not 500; on PostgreSQL 16: Flyway migrations, the sample plan (73.42 km), OR-Tools, a 5,000-order insert-then-upsert without duplicates, the database CHECK constraints, and a commit made between reading vehicles and orders staying out of the plan (fails without the snapshot fix) |
+| Persistence | `UpsertJdbcBatchingIntegrationTest`, `ChunkedUpserterConflictIntegrationTest`, `PersistenceIntegrationTest` | JDBC batching proven by counting real SQL statements (120 new orders = 1 SELECT + 3 batches of 50/50/20; 2,500 orders with 500 existing = 3 SELECTs, 40 INSERT batches, 10 UPDATE batches; unchanged rows = no SQL); a concurrent duplicate insert returns 409, not 500; Flyway migrations, the sample plan (73.42 km), OR-Tools, a 5,000-order insert-then-upsert without duplicates, the database CHECK constraints, and a commit made between reading vehicles and orders staying out of the plan (fails without the snapshot fix) |
 | Web layer | `DispatchControllerTest`, `StrictJsonParsingTest`, `GlobalExceptionHandlerTest`, `JsonErrorTranslatorTest`, `TestDataControllerTest`, `TestDataControllerDisabledTest`, `ServerTimingIntegrationTest` | Every validation case, exact success bodies and error messages, strict parsing, 404/405/406/415 handling, error capping, the `Server-Timing` header and the root redirect |
 | Mappers, model | `DispatchPlanMapperTest`, `RequestMapperTest`, `PriorityTest` | Distance formatting (`"14.44 km"`), visiting order preserved, DTO mapping |
-| End to end | `SampleDatasetIntegrationTest`, `DispatchApiIntegrationTest`, `TestDataIntegrationTest`, `LargeBatchIntegrationTest` | Sample dataset through HTTP + H2 for both strategies; full wiring; test-data generation and the OR-Tools cap; a 50,000-order request body |
+| End to end | `SampleDatasetIntegrationTest`, `DispatchApiIntegrationTest`, `TestDataIntegrationTest`, `LargeBatchIntegrationTest` | Sample dataset through HTTP and PostgreSQL for both strategies; full wiring; test-data generation and the OR-Tools cap; a 50,000-order request body |
 | Test data | `TestDataGeneratorTest`, `TestDataServiceTest` | Determinism per seed, ranges, priority mix, replace semantics and limits |
-| Configuration | `ProdProfileConfigurationTest`, `DatabaseInfoContributorTest` | The production profile binds exactly as at start-up with the variables Render injects (datasource URL, pool settings, `ddl-auto: validate`); `/actuator/info` reports the database |
+| Configuration | `ProductionConfigurationTest`, `AppliedMigrationsTest`, `DatabaseInfoContributorTest` | `application.yml` binds exactly as at start-up with the variables Render injects, and without them (local defaults); migrations applied in production are never edited; `/actuator/info` reports the database |
 
 ## Postman evaluation suite
 

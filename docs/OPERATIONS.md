@@ -18,18 +18,21 @@ released to production.
 
 | Environment | Database | How it is started |
 |---|---|---|
-| Local development and the test suite | In-memory H2 (PostgreSQL mode), so nothing to install | `./mvnw spring-boot:run`, `./mvnw verify` |
-| PostgreSQL integration tests | PostgreSQL 16 in a throw-away container (Testcontainers) | `./mvnw verify` with Docker running; skipped automatically without it |
-| Production | PostgreSQL 16, Render managed database | `prod` profile, deployed from [`render.yaml`](../render.yaml) |
+| Local development | PostgreSQL 16 from [`compose.yaml`](../compose.yaml) | `docker compose up -d`, then `./mvnw spring-boot:run` |
+| Tests | PostgreSQL 16 in a throw-away container (Testcontainers) | `./mvnw verify` (Docker running) |
+| Production | PostgreSQL 16, Render managed database | Deployed from [`render.yaml`](../render.yaml) |
 
-The same Flyway migrations create the schema in every environment, and Hibernate only validates it.
+PostgreSQL is the only database. There is one configuration ([`application.yml`](../src/main/resources/application.yml)):
+it reads the connection from `DB_*` variables and falls back to the local compose database. The same
+Flyway migrations create the schema everywhere, and Hibernate only validates it.
 
 ## Run locally
 
-**Prerequisites:** JDK 21. Nothing else: Maven is downloaded by the wrapper on first use. All commands
+**Prerequisites:** JDK 21 and Docker. Maven is downloaded by the wrapper on first use. All commands
 are run from the project root.
 
 ```bash
+docker compose up -d            # local PostgreSQL 16 on port 5432 (compose.yaml)
 ./mvnw spring-boot:run          # macOS / Linux / Git Bash
 .\mvnw.cmd spring-boot:run      # Windows (PowerShell or cmd)
 ```
@@ -45,18 +48,17 @@ The service listens on port 8080 (or `$PORT` if set). Open http://localhost:8080
 
 ## Run with PostgreSQL
 
-Activate the `prod` profile and point it at a database, either with separate variables (the form Render
-uses) or with one JDBC URL:
+Without any variables the service connects to the compose database (`localhost:5432/dispatch`). To use
+another PostgreSQL, set separate variables (the form Render uses) or one JDBC URL:
 
 ```bash
-export SPRING_PROFILES_ACTIVE=prod
-export DB_HOST=localhost DB_PORT=5432 DB_NAME=dispatch DB_USERNAME=dispatch DB_PASSWORD=secret
-# or: export DB_URL="jdbc:postgresql://localhost:5432/dispatch?reWriteBatchedInserts=true"
+export DB_HOST=db.example.com DB_PORT=5432 DB_NAME=dispatch DB_USERNAME=dispatch DB_PASSWORD=...
+# or: export DB_URL="jdbc:postgresql://db.example.com:5432/dispatch?reWriteBatchedInserts=true"
 java -jar target/dispatch-load-balancer-1.0.0.jar
 ```
 
-PowerShell: `$env:SPRING_PROFILES_ACTIVE="prod"; $env:DB_HOST="localhost"; ...`. Flyway creates the tables
-on the first start. `GET /actuator/info` confirms which database the service is connected to.
+Flyway creates the tables on the first start. `GET /actuator/info` confirms which database the service is
+connected to.
 
 ## Docker
 
@@ -69,8 +71,7 @@ The multi-stage `Dockerfile` builds with the Maven wrapper on `eclipse-temurin:2
 on `eclipse-temurin:21-jre-jammy`, as a non-root user with `JAVA_OPTS=-XX:MaxRAMPercentage=75`. The
 runtime image uses Ubuntu (glibc) because the OR-Tools native libraries need glibc; Alpine (musl) would
 not work. The jar is about 182 MB because it bundles the OR-Tools native libraries for all platforms.
-For PostgreSQL, add `-e SPRING_PROFILES_ACTIVE=prod -e DB_HOST=... -e DB_NAME=... -e DB_USERNAME=...
--e DB_PASSWORD=...`.
+Pass the database with `-e DB_HOST=... -e DB_NAME=... -e DB_USERNAME=... -e DB_PASSWORD=...`.
 
 ## Database schema (Flyway)
 
@@ -104,13 +105,12 @@ relaxed binding (e.g. `APP_DISPATCH_ORTOOLS_TIMELIMIT=5s`).
 | Environment variable | Used for |
 |---|---|
 | `PORT` | Server port (default 8080); set by Render |
-| `SPRING_PROFILES_ACTIVE` | `prod` for PostgreSQL |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection (`prod`); injected by Render from the managed database |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection; injected by Render from the managed database (defaults: the local compose database) |
 | `DB_URL` | Optional full JDBC URL; overrides the host fields |
 | `JAVA_OPTS` | JVM flags in the Docker image |
 | `RENDER_GIT_COMMIT` | Deployed commit, reported by `/actuator/info`; set by Render |
 
-The `prod` profile also sizes the HikariCP pool for the free tier (5 connections) and enables
+The configuration also sizes the HikariCP pool for the free tier (5 connections) and enables
 `reWriteBatchedInserts`, so the driver sends JDBC batches as multi-row `INSERT`s.
 
 ## Production on Render
@@ -120,7 +120,7 @@ The `prod` profile also sizes the HikariCP pool for the free tier (5 connections
 | Resource | Configuration |
 |---|---|
 | `dispatch-db` | PostgreSQL 16, free plan, region Singapore |
-| `dispatch-load-balancer` | Docker web service, free plan, region Singapore, health check `/actuator/health`, `prod` profile |
+| `dispatch-load-balancer` | Docker web service, free plan, region Singapore, health check `/actuator/health` |
 
 The service's database variables are declared with `fromDatabase`, so Render injects the host, port,
 database name, user and password itself. No credential is stored in the repository or typed by hand.
@@ -146,9 +146,9 @@ with the Blueprint's **Manual sync**.
 
 ## Release process
 
-1. **Test:** `./mvnw verify` runs the whole suite and enforces the coverage gate. With Docker running,
-   it includes the PostgreSQL integration tests, which start the app with the `prod` profile against a
-   real PostgreSQL 16.
+1. **Test:** `./mvnw verify` runs the whole suite against a real PostgreSQL 16 and enforces the coverage
+   gate. It also fails if a migration that is already applied in production was edited: such a change
+   would stop the service at start-up, so it must be a new migration instead.
 2. **Deploy:** push to `main`, then choose **Manual Deploy > Deploy latest commit** on the web service in
    Render. The service is deployed from the public repository URL, so Render does not deploy on push.
    Connecting the repository to Render through its GitHub app would enable that.

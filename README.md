@@ -7,7 +7,7 @@ capacity-safe, priority-aware dispatch plan.**
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white)
 ![OR-Tools](https://img.shields.io/badge/Google%20OR--Tools-9.15-4285F4?logo=google&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C140%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C142%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-97.9%25-brightgreen)
 ![Postman](https://img.shields.io/badge/Postman%20on%20live%20server-398%20assertions%20passing-FF6C37?logo=postman&logoColor=white)
 
@@ -85,7 +85,7 @@ has ready-made examples ("Assignment example" and "Sample dataset (Delhi NCR)") 
 | Java, REST, testable by Postman, no UI | Java 21 / Spring Boot REST API; Postman suite included | Postman, all folders |
 | Design patterns and refactoring | Strategy and registry, DTO and mapper, template method, adapter, fallback, bulkhead | [docs/DESIGN.md](docs/DESIGN.md#design-patterns) |
 | API documentation and how to run | Swagger UI on the live server, this README, [docs/API.md](docs/API.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Live URL |
-| TDD, JUnit and test coverage | 1,140 JUnit tests (6 of them against a real PostgreSQL 16), 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
+| TDD, JUnit and test coverage | 1,142 JUnit tests, all against a real PostgreSQL 16; 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
 | Efficient database operations | PostgreSQL 16 in production with Flyway migrations; chunked upsert: one `SELECT` per 1,000 rows, then batched `INSERT`/`UPDATE`; proven by tests that count SQL statements | Postman folders 3 and 6, `/actuator/info` |
 | Code quality and structure | Layered packages, thin controllers, entities never leave the service layer | [Project structure](#project-structure) |
 | Error handling | Strict validation, one error shape, no stack traces, unassignable orders reported with a reason | Postman folders 4 and 5 |
@@ -107,9 +107,10 @@ Two interchangeable algorithms are available per request: a fast, deterministic 
 
 ## Run locally
 
-Requires **JDK 21** only; the Maven wrapper downloads everything else.
+Requires **JDK 21** and **Docker**; the Maven wrapper downloads everything else.
 
 ```bash
+docker compose up -d              # local PostgreSQL 16 (compose.yaml)
 ./mvnw spring-boot:run            # Windows: .\mvnw.cmd spring-boot:run
 ```
 
@@ -122,10 +123,8 @@ curl "localhost:8080/api/dispatch/plan"                     # greedy (default)
 curl "localhost:8080/api/dispatch/plan?strategy=ortools"    # OR-Tools
 ```
 
-Locally the service uses an in-memory H2 database, so it needs no setup. Production uses PostgreSQL
-(`prod` profile). The same Flyway migrations create the schema on both. Docker:
-`docker build -t dispatch-load-balancer . && docker run -p 8080:8080 dispatch-load-balancer`. PostgreSQL,
-configuration and deployment are covered in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+PostgreSQL is the only database, locally, in the tests and in production, and Flyway migrations create
+the schema. Configuration and deployment are covered in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Architecture
 
@@ -246,11 +245,10 @@ are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 | JUnit tests | Line coverage | Branch coverage | Build gate |
 |---|---|---|---|
-| **1,140** passing | **97.93%** | **87.93%** | `./mvnw verify` fails below 85% line coverage |
+| **1,142** passing | **97.93%** | **87.93%** | `./mvnw verify` fails below 85% line coverage |
 
-Six of these tests start the app with the real `prod` profile against a PostgreSQL 16 that Testcontainers
-creates for the run and removes afterwards. They need Docker; on a machine without it, they are skipped
-automatically.
+Every Spring test runs against a real PostgreSQL 16, which Testcontainers creates for the run and removes
+afterwards, so the tests exercise the production database engine. Docker must be running.
 
 The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It covers:
 - every validation rule and exact error message;
@@ -259,8 +257,8 @@ The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It cov
 - every OR-Tools fallback and the concurrency bulkhead;
 - JDBC batching, proven by counting the real SQL statements;
 - the production profile's configuration, bound exactly as at start-up;
-- consistent plans: an upload committed while a plan is being read never ends up half in it (proven on
-  PostgreSQL).
+- consistent plans: an upload committed while a plan is being read never ends up half in it;
+- applied database migrations can never be edited by mistake.
 
 The Postman collection adds 398 assertions over HTTP against the live server. See
 [docs/TESTING.md](docs/TESTING.md).
@@ -273,7 +271,7 @@ The Postman collection adds 398 assertions over HTTP against the live server. Se
 - **Schema.** [Flyway](src/main/resources/db/migration) migrations with primary keys and `CHECK`
   constraints create the schema. Hibernate only validates it (`ddl-auto: validate`).
 - **Release process.**
-  1. `./mvnw verify` runs all 1,140 tests, the PostgreSQL ones included.
+  1. `./mvnw verify` runs all 1,142 tests against PostgreSQL 16.
   2. Deploy the commit from the Render dashboard (**Manual Deploy > Deploy latest commit**). A version
      only goes live after it passes the `/actuator/health` check, so a broken build never replaces a
      working one.
@@ -286,7 +284,7 @@ The Postman collection adds 398 assertions over HTTP against the live server. Se
 |---|---|
 | Language and framework | Java 21, Spring Boot 3.5.16 (Web, Data JPA, Validation, Actuator) |
 | Optimization | Google OR-Tools 9.15 (routing solver, native libraries loaded lazily) |
-| Persistence | PostgreSQL 16 in production (Render), Flyway migrations, Hibernate 6.6, HikariCP; in-memory H2 for local runs |
+| Persistence | PostgreSQL 16 (Render in production, `compose.yaml` locally, Testcontainers in tests), Flyway migrations, Hibernate 6.6, HikariCP |
 | API documentation | springdoc-openapi 2.10 (Swagger UI) |
 | Testing | JUnit 5, Mockito, MockMvc, AssertJ, JaCoCo 0.8.16, Postman |
 | Build and delivery | Maven Wrapper, multi-stage Docker image (`eclipse-temurin:21-jre-jammy`), Render Blueprint |
@@ -298,7 +296,7 @@ dispatch-load-balancer/
 ├── src/
 │   ├── main/
 │   │   ├── java/com/freightfox/dispatch/   Application source (packages below)
-│   │   └── resources/                      application.yml, application-prod.yml, db/migration (Flyway)
+│   │   └── resources/                      application.yml, db/migration (Flyway)
 │   └── test/
 │       ├── java/com/freightfox/dispatch/   Unit, integration, end-to-end and benchmark tests
 │       └── resources/                      Sample datasets and CVRPLIB benchmark instances
@@ -307,6 +305,7 @@ dispatch-load-balancer/
 ├── samples/                                Ready-to-use request bodies (Delhi NCR dataset)
 ├── Dockerfile                              Multi-stage, non-root image (JRE 21)
 ├── render.yaml                             Render Blueprint: PostgreSQL database + Docker web service
+├── compose.yaml                            Local PostgreSQL 16 for running on a laptop
 └── pom.xml                                 Maven build with JaCoCo 85% coverage gate
 ```
 
