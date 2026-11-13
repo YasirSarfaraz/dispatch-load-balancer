@@ -258,7 +258,7 @@ The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It cov
 - the exact sample routes (73.42 km);
 - every OR-Tools fallback and the concurrency bulkhead;
 - JDBC batching, proven by counting the real SQL statements;
-- the production profile's configuration, bound exactly as at start-up;
+- the configuration, bound exactly as at start-up with the variables Render injects;
 - consistent plans: an upload committed while a plan is being read never ends up half in it;
 - applied database migrations can never be edited by mistake.
 

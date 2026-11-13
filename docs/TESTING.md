@@ -2,10 +2,9 @@
 
 [Back to README](../README.md)
 
-The project is tested on three levels:
-- **JUnit:** a suite that runs on every build.
-- **PostgreSQL:** integration tests that run the app with the real production profile against
-  PostgreSQL 16.
+The project is tested on two levels:
+- **JUnit:** a suite that runs on every build, with every Spring test on a real PostgreSQL 16
+  (Testcontainers), the same engine as production.
 - **Postman:** an evaluation suite that exercises the live deployment, which runs on PostgreSQL, over
   HTTP.
 
