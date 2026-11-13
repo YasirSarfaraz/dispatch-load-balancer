@@ -18,7 +18,7 @@ Dispatch Load Balancer: a Spring Boot service for the Capacitated Vehicle Routin
 
 ## 0:00 - 0:30 Intro
 
-**Screen:** README top section (title, overview, Live URL / Swagger / Loom placeholders filled in).
+**Screen:** README top section (title, badges, links table).
 
 **Do:** Scroll slowly over the overview.
 
@@ -30,7 +30,7 @@ and it is deployed on Render."
 
 ## 0:30 - 1:00 Architecture
 
-**Screen:** README "Architecture" Mermaid diagram, then the package tree.
+**Screen:** README "Architecture" diagram, then the package tree in `docs/DESIGN.md`.
 
 **Do:** Point at controller, services, registry, the two strategies, repositories, exception handler.
 
@@ -93,7 +93,7 @@ exceeds capacity of every vehicle'. Nothing fails; every order is accounted for 
 
 ## 3:10 - 3:50 Greedy vs OR-Tools
 
-**Screen:** Swagger **GET /api/dispatch/plan**, then README "Sample dataset walk-through" table.
+**Screen:** Swagger **GET /api/dispatch/plan**, then the README "Results on the sample dataset" table.
 
 **Do:** Set `strategy` to `ortools`, **Execute** (it takes about 3 seconds). Show `"strategy":
 "ortools"` at the bottom and the `unassignedOrders` reasons. Then show the README comparison.
@@ -148,7 +148,7 @@ Performance tests run separately with mvnw verify -Pperformance and write docs/P
 
 ## 4:50 - 5:00 Close
 
-**Screen:** README "Deploy to Render" section or the Render dashboard.
+**Screen:** `docs/OPERATIONS.md` "Deploy to Render" section or the Render dashboard.
 
 **Say:** "Everything is in the README: how to run it locally or with Docker, curl examples for every
 endpoint, the Postman collection, and the Render deployment with Docker and a health check. Thanks for
