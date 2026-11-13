@@ -82,7 +82,7 @@ Vehicle Routing Problem for the Google OR-Tools routing solver.
   vehicles) left HIGH orders unassigned while serving MEDIUM and LOW ones. Starting from greedy, which
   places HIGH first by construction, means OR-Tools can never drop more HIGH (then MEDIUM, then LOW)
   orders than greedy. The cost is a less distance-optimal starting point on pure-distance benchmarks
-  (see [PERFORMANCE.md](PERFORMANCE.md#cvrplib-benchmark)).
+  (see the [engine benchmark](TESTING.md#engine-benchmark)).
 - **Priority guard**: after solving, the unassigned counts per priority are compared with greedy's
   (HIGH, then MEDIUM, then LOW). If OR-Tools is worse, a WARN is logged and the greedy plan is returned
   (`"strategy": "greedy"`).

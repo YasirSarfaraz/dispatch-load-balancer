@@ -91,16 +91,20 @@ https://dispatch-load-balancer-yl5j.onrender.com.
    while `pom.xml` is unchanged.
 4. No port configuration is needed: Render injects `PORT` and the application binds to it
    (`server.port=${PORT:8080}`).
-5. Verify: `/actuator/health` returns `{"status":"UP"}` and `/swagger-ui.html` opens Swagger UI; "Try
-   it out" calls the same host because the OpenAPI server URL is relative.
+5. The live service is deployed from the public repository URL, so Render's auto-deploy is off. After
+   pushing changes, choose **Manual Deploy > Deploy latest commit** in the Render dashboard.
+6. Verify: `/actuator/health` returns `{"status":"UP"}`, the root URL opens Swagger UI ("Try it out"
+   calls the same host because the OpenAPI server URL is relative), and the Postman collection runs
+   green against the new deployment.
 
 Notes:
-- **Memory:** the free plan has 512 MB RAM; with `MaxRAMPercentage=75` the heap is about 384 MB. A
-  5,000-order test-data demo is comfortable; 50,000-order demos may be memory-tight there.
+- **Resources:** the free plan has 512 MB RAM (heap about 384 MB with `MaxRAMPercentage=75`) and a
+  0.1 share of one CPU. It handled 50,000 orders x 500 vehicles in the live run (see
+  [PERFORMANCE.md](PERFORMANCE.md)), but large uploads take tens of seconds on that CPU.
 - **Data resets:** the default profile uses in-memory H2, so all orders and vehicles are lost on every
   restart and redeploy.
-- **Sleep:** free instances spin down after about 15 idle minutes; the first request afterwards takes
-  about 50 s while the service starts again. Call `/actuator/health` before a demo.
+- **Sleep:** free instances spin down after about 15 idle minutes; the first request afterwards can
+  take up to about 2 minutes while the service starts again. Call `/actuator/health` before a demo.
 - **Optional PostgreSQL:** create a Render PostgreSQL database and add `SPRING_PROFILES_ACTIVE=prod`,
   `DB_URL` (JDBC form, `jdbc:postgresql://<host>:<port>/<database>`), `DB_USERNAME` and `DB_PASSWORD`
   to the web service. Render shows the URL in `postgres://` form; convert it to the JDBC form and pass

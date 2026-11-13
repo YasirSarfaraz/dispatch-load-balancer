@@ -1,23 +1,214 @@
 {
   "info": {
     "name": "Dispatch Load Balancer",
-    "description": "All endpoints of the Dispatch Load Balancer, including validation errors and edge cases.\n\nSet the collection variable `baseUrl` (default http://localhost:8080, or the deployed Render URL). Run the whole collection in order with the Collection Runner: every request has tests. Folder 1 resets the data first, so the run is repeatable.",
+    "description": "Evaluation suite for the Dispatch Load Balancer. It targets the live deployment by default ({{baseUrl}} = https://dispatch-load-balancer-yl5j.onrender.com); set the collection variable baseUrl to http://localhost:8080 to test a local run.\n\nRun the whole collection in order with the Collection Runner. Every request has tests, and a collection-level script independently verifies every dispatch plan the server returns: capacity per vehicle, load sums, Haversine distances (recomputed in the test, +/-0.01 km), every order accounted for exactly once, addresses present, and the priority rule.\n\nFolder 6 measures performance with up to 20,000 orders x 400 vehicles; the last folder restores the sample dataset.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Runs after EVERY request. It remembers what was uploaded and independently verifies every dispatch plan.",
+          "const path = pm.request.url.getPath();",
+          "const method = pm.request.method;",
+          "const success = pm.response.code === 200;",
+          "const load = key => JSON.parse(pm.collectionVariables.get(key) || '{}');",
+          "const save = (key, value) => pm.collectionVariables.set(key, JSON.stringify(value));",
+          "",
+          "if (success && method === 'DELETE' && path === '/api/dispatch/orders') { save('knownOrders', {}); pm.collectionVariables.set('ordersKnown', 'true'); }",
+          "if (success && method === 'DELETE' && path === '/api/dispatch/vehicles') { save('knownVehicles', {}); pm.collectionVariables.set('vehiclesKnown', 'true'); }",
+          "if (success && method === 'POST' && path === '/api/dispatch/test-data') {",
+          "    pm.collectionVariables.set('ordersKnown', 'false'); pm.collectionVariables.set('vehiclesKnown', 'false');",
+          "    save('knownOrders', {}); save('knownVehicles', {});",
+          "}",
+          "if (success && method === 'POST' && (path === '/api/dispatch/orders' || path === '/api/dispatch/vehicles')) {",
+          "    const sent = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));",
+          "    if (sent.orders) { const known = load('knownOrders'); sent.orders.forEach(o => { known[o.orderId] = o; }); save('knownOrders', known); }",
+          "    if (sent.vehicles) { const known = load('knownVehicles'); sent.vehicles.forEach(v => { known[v.vehicleId] = v; }); save('knownVehicles', known); }",
+          "}",
+          "",
+          "if (success && path.startsWith('/api/')) {",
+          "    pm.test('[api] JSON response with a Server-Timing header', () => {",
+          "        pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/json');",
+          "        pm.expect(pm.response.headers.get('Server-Timing') || '').to.match(/^app;dur=\\d+(\\.\\d+)?$/);",
+          "    });",
+          "}",
+          "",
+          "let plan = null;",
+          "try { plan = success ? pm.response.json() : null; } catch (e) { plan = null; }",
+          "if (plan && Array.isArray(plan.dispatchPlan)) {",
+          "    const vehicles = plan.dispatchPlan;",
+          "    const assigned = vehicles.flatMap(v => v.assignedOrders);",
+          "    const unassigned = plan.unassignedOrders || [];",
+          "    const fleet = pm.collectionVariables.get('vehiclesKnown') === 'true' ? load('knownVehicles') : null;",
+          "    const orders = pm.collectionVariables.get('ordersKnown') === 'true' ? load('knownOrders') : null;",
+          "    const toRad = d => d * Math.PI / 180;",
+          "    const haversine = (lat1, lon1, lat2, lon2) => {",
+          "        const h = Math.sin(toRad(lat2 - lat1) / 2) ** 2",
+          "            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(toRad(lon2 - lon1) / 2) ** 2;",
+          "        return 2 * 6371.0 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));",
+          "    };",
+          "    const km = v => parseFloat(v.totalDistance);",
+          "",
+          "    pm.test('[plan] strategy is greedy or ortools', () => pm.expect(['greedy', 'ortools']).to.include(plan.strategy));",
+          "    pm.test('[plan] every vehicle listed once, sorted by vehicleId', () => {",
+          "        const ids = vehicles.map(v => v.vehicleId);",
+          "        pm.expect(new Set(ids).size).to.eql(ids.length);",
+          "        pm.expect(ids).to.eql([...ids].sort());",
+          "    });",
+          "    pm.test('[plan] totalLoad = sum of assigned package weights', () => vehicles.forEach(v =>",
+          "        pm.expect(v.totalLoad, v.vehicleId).to.eql(v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0))));",
+          "    pm.test('[plan] totalDistance formatted as \"<km, 2 decimals> km\"', () => vehicles.forEach(v =>",
+          "        pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
+          "    pm.test('[plan] every assigned order carries its address', () => assigned.forEach(o =>",
+          "        pm.expect(o.address, o.orderId).to.be.a('string').and.not.empty));",
+          "    pm.test('[plan] no order appears twice; unassigned orders give a valid reason', () => {",
+          "        const ids = assigned.concat(unassigned).map(o => o.orderId);",
+          "        pm.expect(new Set(ids).size).to.eql(ids.length);",
+          "        const reasons = ['Package weight exceeds capacity of every vehicle', 'Insufficient remaining capacity across fleet',",
+          "            'Dropped by optimizer: insufficient capacity'];",
+          "        unassigned.forEach(o => pm.expect(reasons, o.orderId).to.include(o.reason));",
+          "    });",
+          "    if (fleet) {",
+          "        pm.test('[plan] lists exactly the uploaded vehicles', () => {",
+          "            const expected = Object.keys(fleet);",
+          "            pm.expect(vehicles.length).to.eql(expected.length);",
+          "            pm.expect(vehicles.filter(v => !(v.vehicleId in fleet)).map(v => v.vehicleId), 'unknown vehicle ids').to.eql([]);",
+          "        });",
+          "        pm.test('[capacity] no vehicle carries more than its capacity', () => vehicles.forEach(v =>",
+          "            pm.expect(v.totalLoad, v.vehicleId).to.be.at.most(fleet[v.vehicleId].capacity)));",
+          "        const remaining = vehicles.map(v => fleet[v.vehicleId].capacity - v.totalLoad);",
+          "        const maxRemaining = Math.max(0, ...remaining);",
+          "        if (plan.strategy === 'greedy') {",
+          "            pm.test('[priority] no unassigned order would still fit a vehicle (greedy places every order that fits)', () =>",
+          "                pm.expect(unassigned.filter(o => o.packageWeight <= maxRemaining).map(o => o.orderId)).to.eql([]));",
+          "        } else {",
+          "            pm.test('[priority] no HIGH order is dropped while it would still fit a vehicle', () =>",
+          "                pm.expect(unassigned.filter(o => o.priority === 'HIGH' && o.packageWeight <= maxRemaining).map(o => o.orderId)).to.eql([]));",
+          "        }",
+          "    }",
+          "    if (fleet && orders) {",
+          "        pm.test('[orders] every uploaded order is assigned or unassigned, exactly once', () => {",
+          "            const returned = assigned.concat(unassigned);",
+          "            pm.expect(returned.length).to.eql(Object.keys(orders).length);",
+          "            pm.expect(returned.filter(o => !(o.orderId in orders)).map(o => o.orderId), 'unknown order ids').to.eql([]);",
+          "        });",
+          "        pm.test('[orders] assigned orders are returned unchanged (coordinates, address, weight, priority)', () => {",
+          "            const same = (a, b) => ['orderId', 'latitude', 'longitude', 'address', 'packageWeight', 'priority'].every(k => a[k] === b[k]);",
+          "            pm.expect(assigned.filter(o => !same(o, orders[o.orderId])).map(o => o.orderId), 'changed orders').to.eql([]);",
+          "        });",
+          "        pm.test('[distance] every totalDistance matches an independent Haversine calculation (open route, +/-0.01 km)', () =>",
+          "            vehicles.forEach(v => {",
+          "                const start = fleet[v.vehicleId];",
+          "                let lat = start.currentLatitude, lon = start.currentLongitude, sum = 0;",
+          "                v.assignedOrders.forEach(o => { sum += haversine(lat, lon, o.latitude, o.longitude); lat = o.latitude; lon = o.longitude; });",
+          "                pm.expect(Math.abs(km(v) - sum), v.vehicleId + ' expected ' + sum.toFixed(2) + ' km').to.be.at.most(0.0101);",
+          "            }));",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:8080",
+      "value": "https://dispatch-load-balancer-yl5j.onrender.com",
+      "type": "string"
+    },
+    {
+      "key": "ordersKnown",
+      "value": "false",
+      "type": "string"
+    },
+    {
+      "key": "vehiclesKnown",
+      "value": "false",
+      "type": "string"
+    },
+    {
+      "key": "knownOrders",
+      "value": "{}",
+      "type": "string"
+    },
+    {
+      "key": "knownVehicles",
+      "value": "{}",
+      "type": "string"
+    },
+    {
+      "key": "perfOrders",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "perfVehicles",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "greedySampleKm",
+      "value": "",
       "type": "string"
     }
   ],
   "item": [
     {
-      "name": "1. Happy path",
-      "description": "Loads the 30-order / 5-vehicle sample dataset (samples/*.json) and plans it with each strategy. Total order weight 645 exceeds fleet capacity 500, so some LOW orders are intentionally unassigned.",
+      "name": "0. Start here",
+      "description": "Wakes the service (the free Render instance can take up to about 2 minutes after a period of inactivity) and checks that it is healthy.",
       "item": [
         {
-          "name": "Reset: DELETE orders",
+          "name": "Health check (wakes the service)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test('status UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Assignment example",
+      "description": "The exact request and response example from the assignment brief: two orders and two vehicles.",
+      "item": [
+        {
+          "name": "Reset: delete all orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "DELETE",
             "header": [],
@@ -33,23 +224,22 @@
               ]
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "Reset: delete all vehicles",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "Reset: DELETE vehicles",
+          ],
           "request": {
             "method": "DELETE",
             "header": [],
@@ -65,23 +255,22 @@
               ]
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "POST orders (assignment example)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "POST orders (sample dataset)",
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -103,7 +292,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"orders\": [\n    {\"orderId\": \"ORD001\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 15, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD002\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 10, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD003\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD004\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD005\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 30, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD006\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 40, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD007\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD008\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD009\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD010\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 30, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD011\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD012\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 10, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD013\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD014\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 15, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD015\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD016\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 30, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD017\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD018\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 10, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD019\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD020\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 30, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD021\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 25, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD022\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD023\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 30, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD024\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD025\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 20, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD026\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 25, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD027\", \"latitude\": 28.5355, \"longitude\": 77.391, \"address\": \"Sector 18, Noida, Uttar Pradesh, India\", \"packageWeight\": 20, \"priority\": \"MEDIUM\"},\n    {\"orderId\": \"ORD028\", \"latitude\": 28.4595, \"longitude\": 77.0266, \"address\": \"Cyber Hub, Gurgaon, Haryana, India\", \"packageWeight\": 15, \"priority\": \"LOW\"},\n    {\"orderId\": \"ORD029\", \"latitude\": 28.6139, \"longitude\": 77.209, \"address\": \"Connaught Place, Delhi, India\", \"packageWeight\": 30, \"priority\": \"HIGH\"},\n    {\"orderId\": \"ORD030\", \"latitude\": 28.7041, \"longitude\": 77.1025, \"address\": \"Karol Bagh, Delhi, India\", \"packageWeight\": 20, \"priority\": \"LOW\"}\n  ]\n}",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD001\",\n      \"latitude\": 12.9716,\n      \"longitude\": 77.5946,\n      \"address\": \"MG Road, Bangalore, Karnataka, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD002\",\n      \"latitude\": 13.0827,\n      \"longitude\": 80.2707,\n      \"address\": \"Anna Salai, Chennai, Tamil Nadu, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"MEDIUM\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -111,23 +300,22 @@
               }
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "POST vehicles (assignment example)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "POST vehicles (sample dataset)",
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -149,7 +337,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"vehicles\": [\n    {\"vehicleId\": \"VEH001\", \"capacity\": 100, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"},\n    {\"vehicleId\": \"VEH002\", \"capacity\": 80, \"currentLatitude\": 28.5355, \"currentLongitude\": 77.391, \"currentAddress\": \"Sector 18, Noida, Uttar Pradesh, India\"},\n    {\"vehicleId\": \"VEH003\", \"capacity\": 120, \"currentLatitude\": 28.4595, \"currentLongitude\": 77.0266, \"currentAddress\": \"Cyber Hub, Gurgaon, Haryana, India\"},\n    {\"vehicleId\": \"VEH004\", \"capacity\": 90, \"currentLatitude\": 28.6139, \"currentLongitude\": 77.209, \"currentAddress\": \"Connaught Place, Delhi, India\"},\n    {\"vehicleId\": \"VEH005\", \"capacity\": 110, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"}\n  ]\n}",
+              "raw": "{\n  \"vehicles\": [\n    {\n      \"vehicleId\": \"VEH001\",\n      \"capacity\": 100,\n      \"currentLatitude\": 12.9716,\n      \"currentLongitude\": 77.6413,\n      \"currentAddress\": \"Indiranagar, Bangalore, Karnataka, India\"\n    },\n    {\n      \"vehicleId\": \"VEH002\",\n      \"capacity\": 150,\n      \"currentLatitude\": 13.0674,\n      \"currentLongitude\": 80.2376,\n      \"currentAddress\": \"T Nagar, Chennai, Tamil Nadu, India\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -157,23 +345,242 @@
               }
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "GET plan",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json();",
+                  "const byId = Object.fromEntries(plan.dispatchPlan.map(v => [v.vehicleId, v]));",
+                  "pm.test('response has the dispatchPlan structure from the brief', () => plan.dispatchPlan.forEach(v =>",
+                  "    pm.expect(v).to.include.all.keys('vehicleId', 'totalLoad', 'totalDistance', 'assignedOrders')));",
+                  "pm.test('ORD001 (MG Road, Bangalore) goes to VEH001 (Indiranagar)', () => {",
+                  "    pm.expect(byId.VEH001.assignedOrders.map(o => o.orderId)).to.eql(['ORD001']);",
+                  "    pm.expect(byId.VEH001.totalLoad).to.eql(10);",
+                  "});",
+                  "pm.test('ORD002 (Anna Salai, Chennai) goes to VEH002 (T Nagar)', () => {",
+                  "    pm.expect(byId.VEH002.assignedOrders.map(o => o.orderId)).to.eql(['ORD002']);",
+                  "    pm.expect(byId.VEH002.totalLoad).to.eql(20);",
+                  "});",
+                  "pm.test('nothing is unassigned', () => pm.expect(plan.unassignedOrders).to.eql([]));"
                 ]
               }
             }
-          ]
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Sample dataset (Delhi NCR)",
+      "description": "The 30 orders and 5 vehicles from the brief. It is an over-capacity case: 645 kg of orders against 500 kg of capacity, so some LOW orders cannot be delivered.",
+      "item": [
+        {
+          "name": "Reset: delete all orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset: delete all vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST 30 sample orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD001\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD002\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD003\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD004\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD005\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD006\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 40,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD007\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD008\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD009\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD010\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD011\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD012\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD013\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD014\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD015\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD016\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD017\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD018\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD019\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD020\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD021\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD022\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD023\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD024\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD025\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD026\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD027\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD028\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD029\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD030\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST 5 sample vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicles\": [\n    {\n      \"vehicleId\": \"VEH001\",\n      \"capacity\": 100,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    },\n    {\n      \"vehicleId\": \"VEH002\",\n      \"capacity\": 80,\n      \"currentLatitude\": 28.5355,\n      \"currentLongitude\": 77.391,\n      \"currentAddress\": \"Sector 18, Noida, Uttar Pradesh, India\"\n    },\n    {\n      \"vehicleId\": \"VEH003\",\n      \"capacity\": 120,\n      \"currentLatitude\": 28.4595,\n      \"currentLongitude\": 77.0266,\n      \"currentAddress\": \"Cyber Hub, Gurgaon, Haryana, India\"\n    },\n    {\n      \"vehicleId\": \"VEH004\",\n      \"capacity\": 90,\n      \"currentLatitude\": 28.6139,\n      \"currentLongitude\": 77.209,\n      \"currentAddress\": \"Connaught Place, Delhi, India\"\n    },\n    {\n      \"vehicleId\": \"VEH005\",\n      \"capacity\": 110,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
         },
         {
           "name": "GET plan (greedy)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json();",
+                  "const assigned = plan.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = plan.unassignedOrders;",
+                  "const total = plan.dispatchPlan.reduce((s, v) => s + parseFloat(v.totalDistance), 0);",
+                  "console.log('[sample] greedy: ' + assigned.length + ' assigned, ' + unassigned.length + ' unassigned, ' + total.toFixed(2) + ' km');",
+                  "pm.test('ran the greedy strategy', () => pm.expect(plan.strategy).to.eql('greedy'));",
+                  "pm.test('all 12 HIGH and all 8 MEDIUM orders are assigned', () => {",
+                  "    pm.expect(assigned.filter(o => o.priority === 'HIGH').length).to.eql(12);",
+                  "    pm.expect(assigned.filter(o => o.priority === 'MEDIUM').length).to.eql(8);",
+                  "});",
+                  "pm.test('only LOW orders are left unassigned (645 kg of orders, 500 kg of capacity)', () => {",
+                  "    pm.expect(unassigned.length).to.be.above(0);",
+                  "    unassigned.forEach(o => pm.expect(o.priority, o.orderId).to.eql('LOW'));",
+                  "});",
+                  "",
+                  "pm.test('greedy: 22 assigned, 73.42 km in total (deterministic)', () => {",
+                  "    pm.expect(assigned.length).to.eql(22);",
+                  "    pm.expect(total.toFixed(2)).to.eql('73.42');",
+                  "});",
+                  "pm.collectionVariables.set('greedySampleKm', total.toFixed(2));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
@@ -195,40 +602,38 @@
               ]
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "GET plan (ortools)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
-                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
-                  "const unassigned = body.unassignedOrders || [];",
-                  "pm.test(\"strategy is one of greedy\", () => pm.expect([\"greedy\"]).to.include(body.strategy));",
-                  "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
-                  "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
-                  "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
-                  "    pm.expect(v.totalLoad).to.eql(sum);",
-                  "    pm.expect(v.totalLoad).to.be.at.most(capacity[v.vehicleId]);",
-                  "}));",
-                  "pm.test(\"totalDistance formatted like \\\"14.44 km\\\"\", () => body.dispatchPlan.forEach(v => pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
-                  "pm.test(\"assigned + unassigned = 30\", () => pm.expect(assigned.length + unassigned.length).to.eql(30));",
-                  "pm.test(\"all 12 HIGH orders assigned\", () => pm.expect(assigned.filter(o => o.priority === \"HIGH\").length).to.eql(12));",
-                  "pm.test(\"every unassigned order is LOW and has a reason\", () => unassigned.forEach(o => {",
-                  "    pm.expect(o.priority).to.eql(\"LOW\");",
-                  "    pm.expect(o.reason).to.be.a(\"string\").and.not.empty;",
-                  "}));",
-                  "pm.test(\"assigned orders carry their address\", () => assigned.forEach(o => pm.expect(o.address).to.be.a(\"string\").and.not.empty));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json();",
+                  "const assigned = plan.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = plan.unassignedOrders;",
+                  "const total = plan.dispatchPlan.reduce((s, v) => s + parseFloat(v.totalDistance), 0);",
+                  "console.log('[sample] ortools: ' + assigned.length + ' assigned, ' + unassigned.length + ' unassigned, ' + total.toFixed(2) + ' km');",
+                  "pm.test('ran the ortools strategy', () => pm.expect(plan.strategy).to.eql('ortools'));",
+                  "pm.test('all 12 HIGH and all 8 MEDIUM orders are assigned', () => {",
+                  "    pm.expect(assigned.filter(o => o.priority === 'HIGH').length).to.eql(12);",
+                  "    pm.expect(assigned.filter(o => o.priority === 'MEDIUM').length).to.eql(8);",
+                  "});",
+                  "pm.test('only LOW orders are left unassigned (645 kg of orders, 500 kg of capacity)', () => {",
+                  "    pm.expect(unassigned.length).to.be.above(0);",
+                  "    unassigned.forEach(o => pm.expect(o.priority, o.orderId).to.eql('LOW'));",
+                  "});",
+                  "",
+                  "pm.test('OR-Tools route is not longer than greedy', () =>",
+                  "    pm.expect(total).to.be.at.most(parseFloat(pm.collectionVariables.get('greedySampleKm')) + 0.05));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "GET plan (ortools)",
+          ],
           "request": {
             "method": "GET",
             "header": [],
@@ -248,43 +653,37 @@
                   "value": "ortools"
                 }
               ]
-            },
-            "description": "OR-Tools CVRP, warm-started from the greedy plan. The 30-order sample is below the 1,000-order cap, so \"strategy\" must be \"ortools\"."
+            }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "GET plan (no strategy: greedy by default)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
-                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
-                  "const unassigned = body.unassignedOrders || [];",
-                  "pm.test(\"OR-Tools actually ran (sample is below the 1,000-order cap)\", () => pm.expect(body.strategy).to.eql(\"ortools\"));",
-                  "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
-                  "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
-                  "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
-                  "    pm.expect(v.totalLoad).to.eql(sum);",
-                  "    pm.expect(v.totalLoad).to.be.at.most(capacity[v.vehicleId]);",
-                  "}));",
-                  "pm.test(\"totalDistance formatted like \\\"14.44 km\\\"\", () => body.dispatchPlan.forEach(v => pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
-                  "pm.test(\"assigned + unassigned = 30\", () => pm.expect(assigned.length + unassigned.length).to.eql(30));",
-                  "pm.test(\"all 12 HIGH orders assigned\", () => pm.expect(assigned.filter(o => o.priority === \"HIGH\").length).to.eql(12));",
-                  "pm.test(\"every unassigned order is LOW and has a reason\", () => unassigned.forEach(o => {",
-                  "    pm.expect(o.priority).to.eql(\"LOW\");",
-                  "    pm.expect(o.reason).to.be.a(\"string\").and.not.empty;",
-                  "}));",
-                  "pm.test(\"assigned orders carry their address\", () => assigned.forEach(o => pm.expect(o.address).to.be.a(\"string\").and.not.empty));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json();",
+                  "const assigned = plan.dispatchPlan.flatMap(v => v.assignedOrders);",
+                  "const unassigned = plan.unassignedOrders;",
+                  "const total = plan.dispatchPlan.reduce((s, v) => s + parseFloat(v.totalDistance), 0);",
+                  "console.log('[sample] greedy: ' + assigned.length + ' assigned, ' + unassigned.length + ' unassigned, ' + total.toFixed(2) + ' km');",
+                  "pm.test('ran the greedy strategy', () => pm.expect(plan.strategy).to.eql('greedy'));",
+                  "pm.test('all 12 HIGH and all 8 MEDIUM orders are assigned', () => {",
+                  "    pm.expect(assigned.filter(o => o.priority === 'HIGH').length).to.eql(12);",
+                  "    pm.expect(assigned.filter(o => o.priority === 'MEDIUM').length).to.eql(8);",
+                  "});",
+                  "pm.test('only LOW orders are left unassigned (645 kg of orders, 500 kg of capacity)', () => {",
+                  "    pm.expect(unassigned.length).to.be.above(0);",
+                  "    unassigned.forEach(o => pm.expect(o.priority, o.orderId).to.eql('LOW'));",
+                  "});"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "GET plan (default strategy)",
+          ],
           "request": {
             "method": "GET",
             "header": [],
@@ -300,43 +699,13 @@
               ]
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "const capacity = {\"VEH001\":100,\"VEH002\":80,\"VEH003\":120,\"VEH004\":90,\"VEH005\":110};",
-                  "const assigned = body.dispatchPlan.flatMap(v => v.assignedOrders);",
-                  "const unassigned = body.unassignedOrders || [];",
-                  "pm.test(\"strategy is one of greedy\", () => pm.expect([\"greedy\"]).to.include(body.strategy));",
-                  "pm.test(\"every vehicle is listed\", () => pm.expect(body.dispatchPlan.map(v => v.vehicleId)).to.have.members(Object.keys(capacity)));",
-                  "pm.test(\"no vehicle over capacity and totalLoad = sum of weights\", () => body.dispatchPlan.forEach(v => {",
-                  "    const sum = v.assignedOrders.reduce((s, o) => s + o.packageWeight, 0);",
-                  "    pm.expect(v.totalLoad).to.eql(sum);",
-                  "    pm.expect(v.totalLoad).to.be.at.most(capacity[v.vehicleId]);",
-                  "}));",
-                  "pm.test(\"totalDistance formatted like \\\"14.44 km\\\"\", () => body.dispatchPlan.forEach(v => pm.expect(v.totalDistance).to.match(/^\\d+\\.\\d{2} km$/)));",
-                  "pm.test(\"assigned + unassigned = 30\", () => pm.expect(assigned.length + unassigned.length).to.eql(30));",
-                  "pm.test(\"all 12 HIGH orders assigned\", () => pm.expect(assigned.filter(o => o.priority === \"HIGH\").length).to.eql(12));",
-                  "pm.test(\"every unassigned order is LOW and has a reason\", () => unassigned.forEach(o => {",
-                  "    pm.expect(o.priority).to.eql(\"LOW\");",
-                  "    pm.expect(o.reason).to.be.a(\"string\").and.not.empty;",
-                  "}));",
-                  "pm.test(\"assigned orders carry their address\", () => assigned.forEach(o => pm.expect(o.address).to.be.a(\"string\").and.not.empty));"
-                ]
-              }
-            }
-          ]
+          "response": []
         }
       ]
     },
     {
-      "name": "2. Upsert",
-      "description": "POSTing an existing orderId updates it instead of creating a duplicate.",
+      "name": "3. Upsert",
+      "description": "POSTing an existing orderId updates it instead of inserting a duplicate.",
       "item": [
         {
           "name": "POST same order with changed weight",
@@ -421,8 +790,8 @@
       ]
     },
     {
-      "name": "3. Validation errors",
-      "description": "Every error uses one shape: {\"status\":\"error\",\"message\":\"...\",\"errors\":[\"field: reason\"],\"timestamp\":\"...\"}. None of these requests change stored data.",
+      "name": "4. Validation and error handling",
+      "description": "Every invalid input returns 400 (or 404/405/415) with the same error body: status, message, errors and timestamp, and never a stack trace.",
       "item": [
         {
           "name": "Invalid priority URGENT",
@@ -1427,11 +1796,54 @@
       ]
     },
     {
-      "name": "4. Edge cases",
-      "description": "No vehicles -> 400; no orders -> 200 with an empty plan.",
+      "name": "5. Edge cases",
+      "description": "Unassignable orders, exact-capacity fits, no vehicles and no orders.",
       "item": [
         {
-          "name": "DELETE vehicles",
+          "name": "Reset: delete all orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset: delete all vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "DELETE",
             "header": [],
@@ -1447,63 +1859,22 @@
               ]
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "POST two small vehicles (capacity 20 and 30)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "GET plan with no vehicles -> 400",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/dispatch/plan",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "dispatch",
-                "plan"
-              ]
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"400 Bad Request\", () => pm.response.to.have.status(400));",
-                  "const body = pm.response.json();",
-                  "const text = pm.response.text();",
-                  "pm.test(\"standard error body\", () => {",
-                  "    pm.expect(body.status).to.eql(\"error\");",
-                  "    pm.expect(body.message).to.be.a(\"string\").and.not.empty;",
-                  "    pm.expect(body.errors).to.be.an(\"array\");",
-                  "    pm.expect(body.timestamp).to.be.a(\"string\").and.not.empty;",
-                  "});",
-                  "pm.test(\"no stack trace leaked\", () => pm.expect(text).to.not.match(/\\bat [a-z]+\\.[a-z]+\\./));",
-                  "pm.test(\"message: No vehicles available for dispatch\", () => pm.expect(body.message).to.include(\"No vehicles available for dispatch\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "POST vehicles (restore sample fleet)",
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -1525,7 +1896,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"vehicles\": [\n    {\"vehicleId\": \"VEH001\", \"capacity\": 100, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"},\n    {\"vehicleId\": \"VEH002\", \"capacity\": 80, \"currentLatitude\": 28.5355, \"currentLongitude\": 77.391, \"currentAddress\": \"Sector 18, Noida, Uttar Pradesh, India\"},\n    {\"vehicleId\": \"VEH003\", \"capacity\": 120, \"currentLatitude\": 28.4595, \"currentLongitude\": 77.0266, \"currentAddress\": \"Cyber Hub, Gurgaon, Haryana, India\"},\n    {\"vehicleId\": \"VEH004\", \"capacity\": 90, \"currentLatitude\": 28.6139, \"currentLongitude\": 77.209, \"currentAddress\": \"Connaught Place, Delhi, India\"},\n    {\"vehicleId\": \"VEH005\", \"capacity\": 110, \"currentLatitude\": 28.7041, \"currentLongitude\": 77.1025, \"currentAddress\": \"Karol Bagh, Delhi, India\"}\n  ]\n}",
+              "raw": "{\n  \"vehicles\": [\n    {\n      \"vehicleId\": \"EDGE-V1\",\n      \"capacity\": 20,\n      \"currentLatitude\": 28.6139,\n      \"currentLongitude\": 77.209,\n      \"currentAddress\": \"Connaught Place, Delhi, India\"\n    },\n    {\n      \"vehicleId\": \"EDGE-V2\",\n      \"capacity\": 30,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1533,26 +1904,30 @@
               }
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "POST orders: one too heavy for any vehicle, one exactly filling a vehicle",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "DELETE orders",
+          ],
           "request": {
-            "method": "DELETE",
-            "header": [],
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/dispatch/orders",
               "host": [
@@ -1563,25 +1938,43 @@
                 "dispatch",
                 "orders"
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"EDGE-HEAVY\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 50,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"EDGE-EXACT\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"EDGE-SMALL\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 5,\n      \"priority\": \"LOW\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "GET plan: heavy order unassigned with a reason, exact fit assigned",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"success body\", () => pm.expect(body).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json();",
+                  "const heavy = plan.unassignedOrders.find(o => o.orderId === 'EDGE-HEAVY');",
+                  "pm.test('the 50 kg order is unassigned: \"Package weight exceeds capacity of every vehicle\"', () =>",
+                  "    pm.expect(heavy.reason).to.eql('Package weight exceeds capacity of every vehicle'));",
+                  "pm.test('the 30 kg order exactly fills the 30 kg vehicle', () => {",
+                  "    const v2 = plan.dispatchPlan.find(v => v.vehicleId === 'EDGE-V2');",
+                  "    pm.expect(v2.assignedOrders.map(o => o.orderId)).to.include('EDGE-EXACT');",
+                  "    pm.expect(v2.totalLoad).to.eql(30);",
+                  "});",
+                  "pm.test('the request still succeeds: one unassignable order does not fail the plan', () =>",
+                  "    pm.expect(plan.dispatchPlan.flatMap(v => v.assignedOrders).length).to.eql(2));"
                 ]
               }
             }
-          ]
-        },
-        {
-          "name": "GET plan with no orders -> 200 empty plan",
+          ],
           "request": {
             "method": "GET",
             "header": [],
@@ -1597,34 +1990,1028 @@
               ]
             }
           },
-          "response": [],
+          "response": []
+        },
+        {
+          "name": "DELETE all vehicles",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
-                  "pm.test(\"every vehicle listed, all empty\", () => {",
-                  "    pm.expect(body.dispatchPlan).to.have.lengthOf(5);",
-                  "    body.dispatchPlan.forEach(v => {",
-                  "        pm.expect(v.totalLoad).to.eql(0);",
-                  "        pm.expect(v.totalDistance).to.eql(\"0.00 km\");",
-                  "        pm.expect(v.assignedOrders).to.be.an(\"array\").that.is.empty;",
-                  "    });",
-                  "});",
-                  "pm.test(\"nothing unassigned\", () => pm.expect(body.unassignedOrders || []).to.be.empty);"
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
                 ]
               }
             }
-          ]
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET plan with no vehicles -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('error body: No vehicles available for dispatch', () => {",
+                  "    pm.expect(body.status).to.eql('error');",
+                  "    pm.expect(body.message).to.eql('No vehicles available for dispatch');",
+                  "    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST the two vehicles again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicles\": [\n    {\n      \"vehicleId\": \"EDGE-V1\",\n      \"capacity\": 20,\n      \"currentLatitude\": 28.6139,\n      \"currentLongitude\": 77.209,\n      \"currentAddress\": \"Connaught Place, Delhi, India\"\n    },\n    {\n      \"vehicleId\": \"EDGE-V2\",\n      \"capacity\": 30,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE all orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET plan with no orders -> 200, every vehicle empty",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json();",
+                  "pm.test('every vehicle listed with load 0 and \"0.00 km\"', () => plan.dispatchPlan.forEach(v => {",
+                  "    pm.expect(v.totalLoad).to.eql(0);",
+                  "    pm.expect(v.totalDistance).to.eql('0.00 km');",
+                  "    pm.expect(v.assignedOrders).to.eql([]);",
+                  "}));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
     {
-      "name": "5. Test data",
-      "description": "Demo endpoint: REPLACES all stored orders and vehicles with a reproducible generated dataset (30 Indian cities, 30/40/30 HIGH/MEDIUM/LOW, weight 1-50, capacity 100-500). Limits: 1-50,000 orders, 1-2,000 vehicles.",
+      "name": "6. Performance (large datasets)",
+      "description": "Generated datasets of 1,000, 10,000 and 20,000 orders (seeded, identical on every run) uploaded through the public API and planned. Each request logs the server processing time (Server-Timing header) and the end-to-end time, and every plan is verified by the collection checks. Limits are generous because the free Render instance has a small shared CPU.",
+      "item": [
+        {
+          "name": "1,000 x 50: reset orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1,000 x 50: reset vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1,000 x 50: POST 50 vehicles",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generates 1,000 orders and 50 vehicles around six Indian cities (seeded, so every run is identical).",
+                  "let s = 1 >>> 0;",
+                  "const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);",
+                  "const cities = [[28.6139, 77.2090, 'Delhi'], [19.0760, 72.8777, 'Mumbai'], [12.9716, 77.5946, 'Bangalore'],",
+                  "    [13.0827, 80.2707, 'Chennai'], [22.5726, 88.3639, 'Kolkata'], [17.3850, 78.4867, 'Hyderabad']];",
+                  "const pick = () => cities[Math.floor(rnd() * cities.length)];",
+                  "const round5 = x => Math.round(x * 1e5) / 1e5;",
+                  "const vehicles = [], orders = [];",
+                  "for (let i = 1; i <= 50; i++) {",
+                  "    const c = pick();",
+                  "    vehicles.push({ vehicleId: 'PV' + String(i).padStart(5, '0'), capacity: 100 + Math.floor(rnd() * 401),",
+                  "        currentLatitude: c[0], currentLongitude: c[1], currentAddress: c[2] + ', India' });",
+                  "}",
+                  "for (let i = 1; i <= 1000; i++) {",
+                  "    const c = pick();",
+                  "    orders.push({ orderId: 'PO' + String(i).padStart(6, '0'), latitude: round5(c[0] + (rnd() - 0.5) * 0.2),",
+                  "        longitude: round5(c[1] + (rnd() - 0.5) * 0.2), address: 'Near ' + c[2] + ', India',",
+                  "        packageWeight: 1 + Math.floor(rnd() * 50), priority: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(rnd() * 3)] });",
+                  "}",
+                  "pm.collectionVariables.set('perfVehicles', JSON.stringify({ vehicles }));",
+                  "pm.collectionVariables.set('perfOrders', JSON.stringify({ orders }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 50 vehicles: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 50 vehicles: end-to-end under 30 s', () => pm.expect(pm.response.responseTime).to.be.below(30000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfVehicles}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1,000 x 50: POST 1,000 orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 1,000 orders (inserts): server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 1,000 orders (inserts): end-to-end under 60 s', () => pm.expect(pm.response.responseTime).to.be.below(60000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfOrders}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1,000 x 50: GET plan (greedy)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] greedy plan 1,000 x 50: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] greedy plan 1,000 x 50: end-to-end under 30 s', () => pm.expect(pm.response.responseTime).to.be.below(30000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=greedy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "greedy"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "1,000 x 50: GET plan (ortools)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test('OR-Tools ran (1,000 orders is within its cap)', () => pm.expect(pm.response.json().strategy).to.eql('ortools'));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] OR-Tools plan 1,000 x 50: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] OR-Tools plan 1,000 x 50: end-to-end under 60 s', () => pm.expect(pm.response.responseTime).to.be.below(60000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=ortools",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "ortools"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10,000 x 200: reset orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10,000 x 200: reset vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10,000 x 200: POST 200 vehicles",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generates 10,000 orders and 200 vehicles around six Indian cities (seeded, so every run is identical).",
+                  "let s = 2 >>> 0;",
+                  "const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);",
+                  "const cities = [[28.6139, 77.2090, 'Delhi'], [19.0760, 72.8777, 'Mumbai'], [12.9716, 77.5946, 'Bangalore'],",
+                  "    [13.0827, 80.2707, 'Chennai'], [22.5726, 88.3639, 'Kolkata'], [17.3850, 78.4867, 'Hyderabad']];",
+                  "const pick = () => cities[Math.floor(rnd() * cities.length)];",
+                  "const round5 = x => Math.round(x * 1e5) / 1e5;",
+                  "const vehicles = [], orders = [];",
+                  "for (let i = 1; i <= 200; i++) {",
+                  "    const c = pick();",
+                  "    vehicles.push({ vehicleId: 'PV' + String(i).padStart(5, '0'), capacity: 100 + Math.floor(rnd() * 401),",
+                  "        currentLatitude: c[0], currentLongitude: c[1], currentAddress: c[2] + ', India' });",
+                  "}",
+                  "for (let i = 1; i <= 10000; i++) {",
+                  "    const c = pick();",
+                  "    orders.push({ orderId: 'PO' + String(i).padStart(6, '0'), latitude: round5(c[0] + (rnd() - 0.5) * 0.2),",
+                  "        longitude: round5(c[1] + (rnd() - 0.5) * 0.2), address: 'Near ' + c[2] + ', India',",
+                  "        packageWeight: 1 + Math.floor(rnd() * 50), priority: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(rnd() * 3)] });",
+                  "}",
+                  "pm.collectionVariables.set('perfVehicles', JSON.stringify({ vehicles }));",
+                  "pm.collectionVariables.set('perfOrders', JSON.stringify({ orders }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 200 vehicles: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 200 vehicles: end-to-end under 30 s', () => pm.expect(pm.response.responseTime).to.be.below(30000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfVehicles}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10,000 x 200: POST 10,000 orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 10,000 orders (inserts): server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 10,000 orders (inserts): end-to-end under 90 s', () => pm.expect(pm.response.responseTime).to.be.below(90000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfOrders}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10,000 x 200: GET plan (greedy)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] greedy plan 10,000 x 200: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] greedy plan 10,000 x 200: end-to-end under 60 s', () => pm.expect(pm.response.responseTime).to.be.below(60000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=greedy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "greedy"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10,000 x 200: POST the same 10,000 orders again (all updates)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 10,000 orders (updates): server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 10,000 orders (updates): end-to-end under 90 s', () => pm.expect(pm.response.responseTime).to.be.below(90000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfOrders}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20,000 x 400: reset orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20,000 x 400: reset vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20,000 x 400: POST 400 vehicles",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generates 20,000 orders and 400 vehicles around six Indian cities (seeded, so every run is identical).",
+                  "let s = 3 >>> 0;",
+                  "const rnd = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);",
+                  "const cities = [[28.6139, 77.2090, 'Delhi'], [19.0760, 72.8777, 'Mumbai'], [12.9716, 77.5946, 'Bangalore'],",
+                  "    [13.0827, 80.2707, 'Chennai'], [22.5726, 88.3639, 'Kolkata'], [17.3850, 78.4867, 'Hyderabad']];",
+                  "const pick = () => cities[Math.floor(rnd() * cities.length)];",
+                  "const round5 = x => Math.round(x * 1e5) / 1e5;",
+                  "const vehicles = [], orders = [];",
+                  "for (let i = 1; i <= 400; i++) {",
+                  "    const c = pick();",
+                  "    vehicles.push({ vehicleId: 'PV' + String(i).padStart(5, '0'), capacity: 100 + Math.floor(rnd() * 401),",
+                  "        currentLatitude: c[0], currentLongitude: c[1], currentAddress: c[2] + ', India' });",
+                  "}",
+                  "for (let i = 1; i <= 20000; i++) {",
+                  "    const c = pick();",
+                  "    orders.push({ orderId: 'PO' + String(i).padStart(6, '0'), latitude: round5(c[0] + (rnd() - 0.5) * 0.2),",
+                  "        longitude: round5(c[1] + (rnd() - 0.5) * 0.2), address: 'Near ' + c[2] + ', India',",
+                  "        packageWeight: 1 + Math.floor(rnd() * 50), priority: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(rnd() * 3)] });",
+                  "}",
+                  "pm.collectionVariables.set('perfVehicles', JSON.stringify({ vehicles }));",
+                  "pm.collectionVariables.set('perfOrders', JSON.stringify({ orders }));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 400 vehicles: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 400 vehicles: end-to-end under 30 s', () => pm.expect(pm.response.responseTime).to.be.below(30000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfVehicles}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20,000 x 400: POST 20,000 orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] upsert 20,000 orders (inserts): server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 20,000 orders (inserts): end-to-end under 120 s', () => pm.expect(pm.response.responseTime).to.be.below(120000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{perfOrders}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "20,000 x 400: GET plan (greedy)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
+                  "console.log('[perf] greedy plan 20,000 x 400: server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] greedy plan 20,000 x 400: end-to-end under 60 s', () => pm.expect(pm.response.responseTime).to.be.below(60000));",
+                  "pm.collectionVariables.set('perfOrders', '');",
+                  "pm.collectionVariables.set('perfVehicles', '');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/plan?strategy=greedy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "plan"
+              ],
+              "query": [
+                {
+                  "key": "strategy",
+                  "value": "greedy"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Clean up: delete the generated orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Clean up: delete the generated vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Test-data generator",
+      "description": "The demo endpoint that generates and stores a reproducible dataset in one call, and its limits.",
       "item": [
         {
           "name": "POST test-data 5000 orders / 100 vehicles / seed 42",
@@ -1822,8 +3209,8 @@
       ]
     },
     {
-      "name": "6. Ops",
-      "description": "Health check (used by Render) and the OpenAPI spec (Swagger UI: {{baseUrl}}/swagger-ui.html).",
+      "name": "8. Operations",
+      "description": "Health, OpenAPI document and the root URL.",
       "item": [
         {
           "name": "GET /actuator/health",
@@ -1889,6 +3276,191 @@
               }
             }
           ]
+        },
+        {
+          "name": "GET / opens Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test('the root URL redirects to Swagger UI', () => pm.expect(pm.response.text().toLowerCase()).to.include('swagger'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": []
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "9. Restore sample data",
+      "description": "Leaves the service loaded with the sample dataset, ready for the next reviewer.",
+      "item": [
+        {
+          "name": "Reset: delete all orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All delivery orders deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All delivery orders deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset: delete all vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: All vehicles deleted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"All vehicles deleted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST 30 sample orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"orderId\": \"ORD001\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD002\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD003\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD004\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD005\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD006\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 40,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD007\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD008\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD009\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD010\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD011\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD012\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD013\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD014\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD015\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD016\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD017\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD018\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 10,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD019\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD020\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD021\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD022\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD023\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD024\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD025\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD026\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 25,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD027\",\n      \"latitude\": 28.5355,\n      \"longitude\": 77.391,\n      \"address\": \"Sector 18, Noida, Uttar Pradesh, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"MEDIUM\"\n    },\n    {\n      \"orderId\": \"ORD028\",\n      \"latitude\": 28.4595,\n      \"longitude\": 77.0266,\n      \"address\": \"Cyber Hub, Gurgaon, Haryana, India\",\n      \"packageWeight\": 15,\n      \"priority\": \"LOW\"\n    },\n    {\n      \"orderId\": \"ORD029\",\n      \"latitude\": 28.6139,\n      \"longitude\": 77.209,\n      \"address\": \"Connaught Place, Delhi, India\",\n      \"packageWeight\": 30,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"orderId\": \"ORD030\",\n      \"latitude\": 28.7041,\n      \"longitude\": 77.1025,\n      \"address\": \"Karol Bagh, Delhi, India\",\n      \"packageWeight\": 20,\n      \"priority\": \"LOW\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST 5 sample vehicles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"message: Vehicle details accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Vehicle details accepted.\", status: \"success\" }));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dispatch/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dispatch",
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicles\": [\n    {\n      \"vehicleId\": \"VEH001\",\n      \"capacity\": 100,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    },\n    {\n      \"vehicleId\": \"VEH002\",\n      \"capacity\": 80,\n      \"currentLatitude\": 28.5355,\n      \"currentLongitude\": 77.391,\n      \"currentAddress\": \"Sector 18, Noida, Uttar Pradesh, India\"\n    },\n    {\n      \"vehicleId\": \"VEH003\",\n      \"capacity\": 120,\n      \"currentLatitude\": 28.4595,\n      \"currentLongitude\": 77.0266,\n      \"currentAddress\": \"Cyber Hub, Gurgaon, Haryana, India\"\n    },\n    {\n      \"vehicleId\": \"VEH004\",\n      \"capacity\": 90,\n      \"currentLatitude\": 28.6139,\n      \"currentLongitude\": 77.209,\n      \"currentAddress\": \"Connaught Place, Delhi, India\"\n    },\n    {\n      \"vehicleId\": \"VEH005\",\n      \"capacity\": 110,\n      \"currentLatitude\": 28.7041,\n      \"currentLongitude\": 77.1025,\n      \"currentAddress\": \"Karol Bagh, Delhi, India\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
         }
       ]
     }

@@ -3,8 +3,10 @@
 [Back to README](../README.md)
 
 Base path: `/api/dispatch`. All request and response bodies are JSON (`Content-Type: application/json`).
-Interactive documentation is served by the application at `/swagger-ui.html` (OpenAPI 3 at `/v3/api-docs`),
-with two preloaded request examples: "Assignment example" and "Sample dataset (Delhi NCR)".
+Interactive documentation is served by the application at `/swagger-ui.html` (the root URL redirects
+there; OpenAPI 3 at `/v3/api-docs`), with two preloaded request examples: "Assignment example" and
+"Sample dataset (Delhi NCR)". Every API response carries a `Server-Timing: app;dur=<ms>` header with the
+server's processing time.
 
 - [Endpoints](#endpoints)
 - [Field rules](#field-rules)
@@ -25,7 +27,7 @@ with two preloaded request examples: "Assignment example" and "Sample dataset (D
 | `POST /api/dispatch/test-data` | Query `orders` (default 5000, 1 to 50000), `vehicles` (default 100, 1 to 2000), `seed` (default 42). Demo only; **replaces** all orders and vehicles. | `{"message": "Test data generated. All existing orders and vehicles were replaced.", "status": "success", "ordersGenerated": 5000, "vehiclesGenerated": 100, "seed": 42, "elapsedMs": ...}` | 400 out of range or not a number; 404 when `app.test-data.enabled=false` |
 | `GET /actuator/health` | - | `{"status": "UP"}` | - |
 | `GET /v3/api-docs` | - | OpenAPI 3 JSON | - |
-| `GET /swagger-ui.html` | - | Swagger UI | - |
+| `GET /swagger-ui.html` (or `GET /`) | - | Swagger UI | - |
 
 ## Field rules
 
@@ -112,7 +114,7 @@ Every error, from any endpoint, has one shape:
 Run from the project root (the `samples/` paths are relative). Replace `http://localhost:8080` with
 `https://dispatch-load-balancer-yl5j.onrender.com` to call the live deployment. On Windows use Git Bash,
 or `curl.exe` in PowerShell. The [Postman collection](../postman/DispatchLoadBalancer.postman_collection.json)
-contains the same requests with test assertions; set its `{{baseUrl}}` variable to choose the target.
+covers the same cases with assertions and targets the live deployment by default.
 
 ### Happy path
 

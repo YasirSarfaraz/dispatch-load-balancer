@@ -6,37 +6,89 @@ capacity-safe, priority-aware dispatch plan.**
 ![Java 21](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white)
 ![OR-Tools](https://img.shields.io/badge/Google%20OR--Tools-9.15-4285F4?logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-1%2C122%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C127%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-97.9%25-brightgreen)
-![Deployed on Render](https://img.shields.io/badge/deployed-Render-46E3B7?logo=render&logoColor=white)
+![Postman](https://img.shields.io/badge/Postman%20on%20live%20server-398%20assertions%20passing-FF6C37?logo=postman&logoColor=white)
 
 | Resource | Link |
 |---|---|
-| **Live API** | https://dispatch-load-balancer-yl5j.onrender.com |
-| **Swagger UI** | https://dispatch-load-balancer-yl5j.onrender.com/swagger-ui.html |
-| **Video walkthrough** | _Loom link to be added_ |
+| **Live API** | https://dispatch-load-balancer-yl5j.onrender.com (opens Swagger UI) |
 | **Postman collection** | [`postman/DispatchLoadBalancer.postman_collection.json`](postman/DispatchLoadBalancer.postman_collection.json) |
+| **Video walkthrough** | _Loom link to be added_ |
 | **Architecture diagram** | [`docs/architecture.html`](docs/architecture.html) (interactive) |
-
-> The live instance runs on Render's free plan: after about 15 idle minutes the first request takes
-> about 50 s while it wakes up. Data is held in memory, so load the sample data first (see
-> [Quick start](#quick-start)).
 
 ## Contents
 
+- [How to evaluate](#how-to-evaluate)
 - [Overview](#overview)
-- [Highlights](#highlights)
-- [Quick start](#quick-start)
+- [Run locally](#run-locally)
 - [Architecture](#architecture)
 - [API at a glance](#api-at-a-glance)
 - [How dispatching works](#how-dispatching-works)
-- [Results on the sample dataset](#results-on-the-sample-dataset)
-- [Quality and performance](#quality-and-performance)
+- [Results on the live deployment](#results-on-the-live-deployment)
+- [Tests and coverage](#tests-and-coverage)
 - [Tech stack](#tech-stack)
 - [Project structure](#project-structure)
 - [Assumptions](#assumptions)
 - [Known limitations](#known-limitations)
 - [Further documentation](#further-documentation)
+
+## How to evaluate
+
+### 1. Run the Postman collection against the live server (recommended)
+
+1. In Postman, choose **Import** and select
+   [`postman/DispatchLoadBalancer.postman_collection.json`](postman/DispatchLoadBalancer.postman_collection.json).
+   The `baseUrl` variable already points at the live deployment.
+2. Open the collection and click **Run** to run all **74 requests** in order. Every request carries
+   tests, **398 assertions** in total. The latest full run against the live server passed all of them.
+3. On top of the per-request tests, a collection-level script verifies **every dispatch plan** the
+   server returns, independently of the server's own code:
+   - no vehicle carries more than its capacity, and `totalLoad` equals the sum of the assigned weights;
+   - every `totalDistance` matches a Haversine calculation done inside Postman, to within 0.01 km;
+   - every uploaded order comes back exactly once, assigned or unassigned with a reason;
+   - every assigned order includes its address;
+   - no unassigned order would still have fitted a vehicle (the priority rule).
+
+| Folder | What it checks |
+|---|---|
+| 0. Start here | Wakes the service: after 15 idle minutes the first request can take up to about 2 minutes |
+| 1. Assignment example | The exact request and response example from the assignment brief |
+| 2. Sample dataset | The brief's 30 orders and 5 vehicles with greedy, OR-Tools and the default strategy |
+| 3. Upsert | Re-posting an existing `orderId` updates it instead of duplicating it |
+| 4. Validation and error handling | 19 invalid inputs: 400/404/405/415 with one consistent error body |
+| 5. Edge cases | An order too heavy for any vehicle, an exact-capacity fit, no vehicles, no orders |
+| 6. Performance | 1,000, 10,000 and 20,000 orders uploaded and planned, with timings |
+| 7. Test-data generator | One-call generation of 5,000 orders x 100 vehicles, and its limits |
+| 8. Operations | Health check, OpenAPI document, root URL |
+| 9. Restore sample data | Leaves the sample dataset loaded for the next reviewer |
+
+To test a local run instead, set the collection variable `baseUrl` to `http://localhost:8080`.
+
+### 2. Try it in Swagger UI
+
+Open https://dispatch-load-balancer-yl5j.onrender.com. It redirects to Swagger UI, where every endpoint
+has ready-made examples ("Assignment example" and "Sample dataset (Delhi NCR)") under **Try it out**.
+
+### 3. Build and test the code
+
+```bash
+./mvnw verify      # 1,127 tests, JaCoCo report in target/site/jacoco/index.html (Windows: .\mvnw.cmd verify)
+```
+
+### Where each evaluation criterion is addressed
+
+| Criterion | How it is met | Verify it |
+|---|---|---|
+| Java, REST, testable by Postman, no UI | Java 21 / Spring Boot REST API; Postman suite included | Postman, all folders |
+| Design patterns and refactoring | Strategy and registry, DTO and mapper, template method, adapter, fallback, bulkhead | [docs/DESIGN.md](docs/DESIGN.md#design-patterns) |
+| API documentation and how to run | Swagger UI on the live server, this README, [docs/API.md](docs/API.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Live URL |
+| TDD, JUnit and test coverage | 1,127 JUnit tests, 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
+| Efficient database operations | Chunked upsert: one `SELECT` per 1,000 rows, then batched `INSERT`/`UPDATE`; proven by tests that count SQL statements | Postman folders 3 and 6 |
+| Code quality and structure | Layered packages, thin controllers, entities never leave the service layer | [Project structure](#project-structure) |
+| Error handling | Strict validation, one error shape, no stack traces, unassignable orders reported with a reason | Postman folders 4 and 5 |
+| Performance on large datasets | 20,000 orders uploaded in one request and planned on the live server (50,000 in a one-off run) | Postman folder 6, [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
+| Correctness: constraints and distances | Capacity, priority and Haversine distance verified for every plan the server returns | Postman, collection-level checks |
 
 ## Overview
 
@@ -51,23 +103,7 @@ The service solves a **Capacitated Vehicle Routing Problem (CVRP)** through a RE
 Two interchangeable algorithms are available per request: a fast, deterministic **greedy** heuristic
 (the default) and a **Google OR-Tools** CVRP solver (`?strategy=ortools`).
 
-## Highlights
-
-- **Two strategies behind one contract.** A registry built from strategy beans picks the algorithm by
-  name, with no if/else. OR-Tools is warm-started from the greedy plan, guarded so it can never drop
-  more high-priority orders than greedy, and falls back to greedy instead of failing.
-- **Fast at scale.** Greedy plans **50,000 orders x 500 vehicles in 70 ms** with an allocation-free
-  O(n x m) inner loop. A 50,000-order request body is accepted and stored in one call.
-- **Efficient writes.** Chunked upsert with one `SELECT` per 1,000 rows and JDBC-batched
-  inserts/updates, proven by tests that count the real SQL statements.
-- **Strict, consistent API.** Bean Validation plus strict JSON parsing, one error shape for every
-  failure, and no stack traces leaked. Concurrent duplicate inserts return 409, never 500.
-- **Thoroughly tested.** 1,122 tests, **97.9% line coverage** (85% gate enforced by the build),
-  benchmarks against CVRPLIB instances, and 119 Postman assertions.
-- **Production-ready packaging.** Multi-stage, non-root Docker image, a Render Blueprint with health
-  check, H2 by default and a PostgreSQL profile.
-
-## Quick start
+## Run locally
 
 Requires **JDK 21** only; the Maven wrapper downloads everything else.
 
@@ -75,8 +111,7 @@ Requires **JDK 21** only; the Maven wrapper downloads everything else.
 ./mvnw spring-boot:run            # Windows: .\mvnw.cmd spring-boot:run
 ```
 
-Then, from the project root (use `https://dispatch-load-balancer-yl5j.onrender.com` instead of
-`localhost:8080` to try the live deployment):
+Then open http://localhost:8080, or use curl from the project root:
 
 ```bash
 curl -X POST localhost:8080/api/dispatch/orders   -H "Content-Type: application/json" -d @samples/orders.json
@@ -85,8 +120,8 @@ curl "localhost:8080/api/dispatch/plan"                     # greedy (default)
 curl "localhost:8080/api/dispatch/plan?strategy=ortools"    # OR-Tools
 ```
 
-Or open http://localhost:8080/swagger-ui.html and use the preloaded "Sample dataset (Delhi NCR)"
-examples. Docker: `docker build -t dispatch-load-balancer . && docker run -p 8080:8080 dispatch-load-balancer`.
+Docker: `docker build -t dispatch-load-balancer . && docker run -p 8080:8080 dispatch-load-balancer`.
+PostgreSQL, configuration and deployment are covered in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Architecture
 
@@ -101,8 +136,7 @@ The architecture is layered:
   the service layer.
 
 The interactive diagram ([`docs/architecture.html`](docs/architecture.html), light/dark theme) traces
-every path. The component view, package layout and the full list of design patterns are in
-[docs/DESIGN.md](docs/DESIGN.md).
+every path. The component view, package layout and design patterns are in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## API at a glance
 
@@ -141,8 +175,8 @@ Every error has the same shape, for example:
  "errors": ["orders[0].latitude: must be less than or equal to 90.0"], "timestamp": "2026-11-12T10:15:30.123Z"}
 ```
 
-Field rules, status codes and copy-paste curl examples for every success and error case are in
-[docs/API.md](docs/API.md).
+Every API response also carries a `Server-Timing` header with the server's processing time. Field
+rules, status codes and curl examples for every case are in [docs/API.md](docs/API.md).
 
 ## How dispatching works
 
@@ -173,51 +207,49 @@ greedy, and says so in `strategy`, in these cases:
 The full description, including the penalty formulas and the complexity analysis, is in
 [docs/ALGORITHMS.md](docs/ALGORITHMS.md).
 
-## Results on the sample dataset
+## Results on the live deployment
 
-`samples/` holds a Delhi NCR dataset with 30 orders and 5 vehicles. It is an intentional over-capacity
-case: the orders weigh **645 kg**, but the fleet carries only **500 kg**.
+All figures come from the Postman run against https://dispatch-load-balancer-yl5j.onrender.com.
 
-| | Greedy | OR-Tools (3 s) |
+**Sample dataset from the brief.** It has 30 orders and 5 vehicles, and is an intentional
+over-capacity case: 645 kg of orders against 500 kg of capacity.
+
+| | Greedy | OR-Tools (3 s search) |
 |---|---|---|
 | Orders assigned | 22 of 30 | 24 of 30 |
 | HIGH / MEDIUM assigned | 12 of 12 / 8 of 8 | 12 of 12 / 8 of 8 |
-| Unassigned (all LOW) | 8 | 6 |
-| Total distance | **73.42 km** (deterministic) | **34.24 km** on a 16-core machine, **48.27 km** on Render's free instance |
+| Unassigned (all LOW, each with a reason) | 8 | 6 |
+| Total distance | **73.42 km** | **48.27 km** |
 | Capacity respected | Yes, every vehicle | Yes, every vehicle |
 
-Both runs are asserted end to end by `SampleDatasetIntegrationTest`: every HIGH order assigned, no
-vehicle over capacity, all 30 orders accounted for, and OR-Tools never longer than greedy.
-Vehicle-by-vehicle routes are in [docs/ALGORITHMS.md](docs/ALGORITHMS.md#sample-dataset-walk-through).
+**Large datasets.** These ran on Render's free instance, which has a 0.1 share of one CPU and 512 MB
+RAM. Server times are from the `Server-Timing` header, measured on a warm instance during a repeat run.
 
-## Quality and performance
+| Orders x Vehicles | Upload orders (server) | Greedy plan (server) | Greedy plan (end-to-end, incl. download) |
+|---|---:|---:|---:|
+| 1,000 x 50 | 1.4 s | 0.2 s | 0.6 s |
+| 10,000 x 200 | 4.3 s | 0.7 s | 2.1 s |
+| 20,000 x 400 | 6.9 s (2.7 MB body, one request) | 1.6 s | 3.0 s (3.6 MB response) |
 
-| Tests | Line coverage | Branch coverage | Build gate |
+OR-Tools plans 1,000 x 50 in 4.6 s (a 3 s search plus model building). A one-off run also handled
+50,000 orders x 500 vehicles on the same instance. First-run figures, after a restart, and the method
+are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+## Tests and coverage
+
+| JUnit tests | Line coverage | Branch coverage | Build gate |
 |---|---|---|---|
-| **1,122** passing | **97.87%** | **87.76%** | `./mvnw verify` fails below 85% line coverage |
+| **1,127** passing | **97.89%** | **87.87%** | `./mvnw verify` fails below 85% line coverage |
 
-The tests cover:
+The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It covers:
 - every validation rule and exact error message;
-- the HIGH-priority invariant on random data;
-- the exact sample routes;
-- every OR-Tools fallback;
-- the concurrency bulkhead;
-- JDBC batching, proven by counting the actual SQL statements.
+- the HIGH-priority invariant on randomized data;
+- the exact sample routes (73.42 km);
+- every OR-Tools fallback and the concurrency bulkhead;
+- JDBC batching, proven by counting the real SQL statements.
 
-See [docs/TESTING.md](docs/TESTING.md).
-
-Benchmarks (`./mvnw verify -Pperformance`, generated into [docs/PERFORMANCE.md](docs/PERFORMANCE.md)):
-
-| Strategy | Orders x Vehicles | Upsert | Plan | Peak heap |
-|---|---|---:|---:|---:|
-| greedy | 10,000 x 200 | 271 ms | 19 ms | 146 MB |
-| greedy | 50,000 x 500 | 1,005 ms | **70 ms** | 343 MB |
-| ortools | 200 x 20 | 9 ms | 3,016 ms | 50 MB |
-| ortools | 1,000 x 50 | 13 ms | 3,084 ms | 65 MB |
-
-On the same data, OR-Tools serves the same orders per priority as greedy with **60.4% less distance**
-at 200 x 20 and **9.2% less** at 1,000 x 50. On CVRPLIB set X instances, OR-Tools (3 s) is within
-11–16.5% of the best-known solutions, compared with 36–46% for greedy.
+The Postman collection adds 398 assertions over HTTP against the live server. See
+[docs/TESTING.md](docs/TESTING.md).
 
 ## Tech stack
 
@@ -227,7 +259,7 @@ at 200 x 20 and **9.2% less** at 1,000 x 50. On CVRPLIB set X instances, OR-Tool
 | Optimization | Google OR-Tools 9.15 (routing solver, native libraries loaded lazily) |
 | Persistence | Hibernate 6.6, H2 in-memory by default, PostgreSQL via the `prod` profile |
 | API documentation | springdoc-openapi 2.10 (Swagger UI) |
-| Testing | JUnit 5, Mockito, MockMvc, AssertJ, JaCoCo 0.8.16 |
+| Testing | JUnit 5, Mockito, MockMvc, AssertJ, JaCoCo 0.8.16, Postman |
 | Build and delivery | Maven Wrapper, multi-stage Docker image (`eclipse-temurin:21-jre-jammy`), Render Blueprint |
 
 ## Project structure
@@ -239,10 +271,10 @@ dispatch-load-balancer/
 │   │   ├── java/com/freightfox/dispatch/   Application source (packages below)
 │   │   └── resources/                      application.yml, application-prod.yml (PostgreSQL)
 │   └── test/
-│       ├── java/com/freightfox/dispatch/   Unit, integration, end-to-end and performance tests
+│       ├── java/com/freightfox/dispatch/   Unit, integration, end-to-end and benchmark tests
 │       └── resources/                      Sample datasets and CVRPLIB benchmark instances
 ├── docs/                                   API, algorithms, design, operations, testing, performance
-├── postman/                                Postman collection with 119 assertions
+├── postman/                                Evaluation suite: 74 requests, 398 assertions
 ├── samples/                                Ready-to-use request bodies (Delhi NCR dataset)
 ├── Dockerfile                              Multi-stage, non-root image (JRE 21)
 ├── render.yaml                             Render Blueprint (Docker runtime, health check)
@@ -253,7 +285,7 @@ Source packages under `com.freightfox.dispatch`, by layer:
 
 | Layer | Package | Responsibility |
 |---|---|---|
-| **API** | `controller` | REST endpoints, API constants and Swagger examples |
+| **API** | `controller` | REST endpoints, API constants, Swagger examples, `Server-Timing` header |
 | | `dto.request` / `dto.response` | Validated request records and response records |
 | | `exception` | Global exception handler: one error format for every failure |
 | **Application** | `service`, `service.impl` | Order, vehicle and dispatch services; shared chunked upserter |
@@ -284,16 +316,17 @@ The full list of decisions is in [docs/DESIGN.md](docs/DESIGN.md#assumptions-and
 
 ## Known limitations
 
-- **OR-Tools results can vary.** The search is time-limited (about 3 s per plan), so results can differ
-  slightly between runs and machines. Constraints and priorities always hold.
+- **OR-Tools results can vary.** The search is time-limited, so results can differ slightly between
+  runs. Capacity and priority constraints always hold.
 - **OR-Tools scope is capped.** It handles up to 1,000 orders and 2 concurrent solves; beyond that the
   service uses greedy and reports `"strategy": "greedy"`.
 - **Greedy is a heuristic.** It guarantees capacity and priority order, but not minimum distance or
   maximum orders served.
-- **Data does not persist by default.** H2 is in memory, so data is lost on restart unless the `prod`
-  PostgreSQL profile is used. Render's free plan (512 MB) suits demos of up to about 5,000 orders.
-- **Request size is not capped in the application.** Put a body-size limit in a reverse proxy for public
-  exposure.
+- **Free-tier hosting.** The live instance sleeps when idle; its first request can take up to about 2
+  minutes. It has a small CPU share, and data is held in memory, so it resets on restart. The `prod`
+  profile with PostgreSQL removes the data reset.
+- **Request size is not capped in the application.** For public exposure, put a body-size limit in a
+  reverse proxy.
 
 ## Further documentation
 
@@ -303,6 +336,6 @@ The full list of decisions is in [docs/DESIGN.md](docs/DESIGN.md#assumptions-and
 | [docs/ALGORITHMS.md](docs/ALGORITHMS.md) | Haversine, greedy, OR-Tools model and penalties, fallbacks, sample walk-through |
 | [docs/DESIGN.md](docs/DESIGN.md) | Component diagram, package layout, design patterns, assumptions and decisions, scaling |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Running locally, PostgreSQL, Docker, configuration, Render deployment |
-| [docs/TESTING.md](docs/TESTING.md) | Test commands, coverage, what each test area proves |
-| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Full benchmark results and CVRPLIB comparison |
+| [docs/TESTING.md](docs/TESTING.md) | JUnit suite, Postman evaluation suite, what each test area proves |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Measurements on the live deployment |
 | [LOOM_SCRIPT.md](LOOM_SCRIPT.md) | Narration and screen plan of the demo video |

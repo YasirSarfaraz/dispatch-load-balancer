@@ -2,45 +2,69 @@
 
 [Back to README](../README.md)
 
-How to run the tests and benchmarks, and what the suite proves.
+The project is tested on two levels:
+- **JUnit:** a suite that runs on every build.
+- **Postman:** an evaluation suite that exercises the live deployment over HTTP.
+
+| Suite | Scope | Result |
+|---|---|---|
+| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests | **1,127** tests, 0 failures |
+| JaCoCo | Coverage of the JUnit suite (build fails below 85% lines) | **97.89%** lines (1,208 of 1,234), **87.87%** branches (384 of 437) |
+| Postman | 74 requests against the live server | **398** assertions, all passing |
+
+- [JUnit suite](#junit-suite)
+- [Postman evaluation suite](#postman-evaluation-suite)
+- [Engine benchmark](#engine-benchmark)
+
+## JUnit suite
 
 ```bash
-./mvnw test                    # unit + integration tests (Windows: .\mvnw.cmd test)
-./mvnw verify                  # tests + JaCoCo report + 85% line-coverage gate (the build fails below 85%)
-./mvnw verify -Pperformance    # performance and CVRPLIB benchmarks only; writes docs/PERFORMANCE.md
+./mvnw test       # unit + integration tests (Windows: .\mvnw.cmd test)
+./mvnw verify     # tests + JaCoCo report (target/site/jacoco/index.html) + 85% line-coverage gate
 ```
 
-| Metric | Result |
-|---|---|
-| Tests (`./mvnw verify`) | **1,122**, 0 failures (plus 10 performance/CVRPLIB tests in `-Pperformance`) |
-| Line coverage | **97.87%** (1,196 of 1,222 lines) |
-| Branch coverage | **87.76%** (380 of 433 branches) |
-
-Coverage report: `target/site/jacoco/index.html`. The normal build excludes `@Tag("performance")`
-tests. Mockito is attached as a `-javaagent`, as recommended for JDK 21. The
-[Postman collection](../postman/DispatchLoadBalancer.postman_collection.json) adds 119 HTTP-level
-assertions (happy path, upsert, validation errors, edge cases, test data, operations), run with the
-Collection Runner.
-
-## What the suite proves
-
-29 test classes under `src/test/java`, plus shared test helpers.
+The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It has 30 test classes under
+`src/test/java`, plus shared test helpers.
 
 | Area | Key test classes | What they prove |
 |---|---|---|
 | Distance | `HaversineDistanceCalculatorTest`, `HaversineTableTest` | Same point = 0, Connaught Place to Karol Bagh about 14.4 km, symmetry; the trig table matches the calculator |
 | Greedy | `GreedyPriorityDispatchStrategyTest`, `GreedySampleDatasetTest`, `GreedyRandomizedInvariantTest`, `RouteOptimizerTest` | Capacity never exceeded, priority order, nearest vehicle, tie-breaks, unassigned reasons, empty orders, single vehicle, determinism, exact sample routes (73.42 km), the HIGH invariant on randomized data, 2-opt never lengthens a route |
-| OR-Tools | `OrToolsDispatchStrategyTest`, `OrToolsWarmStartTest`, `OrToolsCvrpSolverTest`, `SeedRoutesTest`, `UnassignedCountsTest`, `DropPenaltiesTest`, `CvrpModelBuilderTest`, `OrToolsNativeLoaderTest` | Sample invariants, HIGH kept over MEDIUM/LOW, open routes, the greedy warm start (including a regression on 1,000 x 50 capacity-scarce data), the priority guard, the 2-solve bulkhead, every fallback (cap, native load failure, no solution, solver exception, invalid solutions), penalty arithmetic and overflow handling |
-| Registry | `DispatchStrategyRegistryTest` | Case-insensitive lookup, default, unknown names, duplicate names |
+| OR-Tools | `OrToolsDispatchStrategyTest`, `OrToolsWarmStartTest`, `OrToolsCvrpSolverTest`, `SeedRoutesTest`, `UnassignedCountsTest`, `DropPenaltiesTest`, `CvrpModelBuilderTest`, `OrToolsNativeLoaderTest` | HIGH kept over MEDIUM/LOW, open routes, the greedy warm start, the priority guard, the 2-solve bulkhead, every fallback (cap, native load failure, no solution, solver exception, invalid solution), penalty arithmetic and overflow handling |
+| Registry | `DispatchStrategyRegistryTest` | Case-insensitive lookup, default, unknown and duplicate names |
 | Services | `DefaultOrderServiceTest`, `DefaultVehicleServiceTest`, `DefaultDispatchServiceTest` | Upsert behaviour, ordering of checks, no-vehicles error |
-| Persistence | `UpsertJdbcBatchingIntegrationTest`, `ChunkedUpserterConflictIntegrationTest` | JDBC batching proven by counting real SQL statements (120 new orders = 1 SELECT + 3 batches of 50/50/20, no single-row inserts; 2,500 orders with 500 existing = 3 SELECTs, 40 INSERT batches, 10 UPDATE batches; unchanged rows = no SQL); a concurrent duplicate insert surfaces as 409, not 500 |
-| Web layer | `DispatchControllerTest`, `StrictJsonParsingTest`, `GlobalExceptionHandlerTest`, `JsonErrorTranslatorTest`, `TestDataControllerTest`, `TestDataControllerDisabledTest` | Every validation case, exact success bodies and error messages, strict parsing (overflow, `"10"` as a number, trailing tokens), 404/405/406/415 handling, error capping |
+| Persistence | `UpsertJdbcBatchingIntegrationTest`, `ChunkedUpserterConflictIntegrationTest` | JDBC batching proven by counting real SQL statements (120 new orders = 1 SELECT + 3 batches of 50/50/20; 2,500 orders with 500 existing = 3 SELECTs, 40 INSERT batches, 10 UPDATE batches; unchanged rows = no SQL); a concurrent duplicate insert returns 409, not 500 |
+| Web layer | `DispatchControllerTest`, `StrictJsonParsingTest`, `GlobalExceptionHandlerTest`, `JsonErrorTranslatorTest`, `TestDataControllerTest`, `TestDataControllerDisabledTest`, `ServerTimingIntegrationTest` | Every validation case, exact success bodies and error messages, strict parsing, 404/405/406/415 handling, error capping, the `Server-Timing` header and the root redirect |
 | Mappers, model | `DispatchPlanMapperTest`, `RequestMapperTest`, `PriorityTest` | Distance formatting (`"14.44 km"`), visiting order preserved, DTO mapping |
-| End to end | `SampleDatasetIntegrationTest`, `DispatchApiIntegrationTest`, `TestDataIntegrationTest`, `LargeBatchIntegrationTest` | Sample dataset through HTTP + H2 for both strategies (all 12 HIGH assigned, capacity, 30 orders accounted for, unassigned all LOW, OR-Tools <= greedy); full wiring; test-data generation and the OR-Tools cap; a 50,000-order request body |
+| End to end | `SampleDatasetIntegrationTest`, `DispatchApiIntegrationTest`, `TestDataIntegrationTest`, `LargeBatchIntegrationTest` | Sample dataset through HTTP + H2 for both strategies; full wiring; test-data generation and the OR-Tools cap; a 50,000-order request body |
 | Test data | `TestDataGeneratorTest`, `TestDataServiceTest` | Determinism per seed, ranges, priority mix, replace semantics and limits |
 
-## Benchmarks
+## Postman evaluation suite
 
-`./mvnw verify -Pperformance` runs only the `@Tag("performance")` tests (with `-Xms512m -Xmx2g`, JaCoCo
-skipped), asserts every invariant on large generated datasets and on three CVRPLIB instances, and writes
-the results with machine information to [PERFORMANCE.md](PERFORMANCE.md).
+[`postman/DispatchLoadBalancer.postman_collection.json`](../postman/DispatchLoadBalancer.postman_collection.json)
+targets the live deployment by default. Import it and click **Run**. The folders and what each checks
+are listed in the [README](../README.md#how-to-evaluate).
+
+Besides the per-request tests, a collection-level script runs after every request:
+- **It remembers what was uploaded:** the orders and vehicles from each POST, and a reset on each DELETE.
+- **It verifies every dispatch plan the server returns**, independently of the server code:
+
+| Check | Rule |
+|---|---|
+| Capacity | No vehicle's `totalLoad` exceeds its capacity; `totalLoad` equals the sum of its orders' weights |
+| Distance | Each `totalDistance` equals a Haversine calculation done in Postman over the open route (vehicle location, then each stop in order), to within 0.01 km |
+| Completeness | Every uploaded order appears exactly once, assigned or unassigned; assigned orders come back unchanged and with their address |
+| Priority | No unassigned order would still fit a vehicle (greedy); no HIGH order is dropped while it would fit (OR-Tools) |
+| Format | Every vehicle listed once and sorted; distances formatted `"<km> km"`; valid unassigned reasons; a `Server-Timing` header |
+
+The collection was run twice in a row against the live server; both runs passed all 74 requests and
+398 assertions.
+The measurements from its performance folder are in [PERFORMANCE.md](PERFORMANCE.md).
+
+## Engine benchmark
+
+`./mvnw verify -Pperformance` runs the `@Tag("performance")` tests, which the normal build excludes.
+They plan generated datasets of up to 50,000 orders x 500 vehicles in-process, and compare both
+strategies on three CVRPLIB benchmark instances with known best solutions. The results are written to
+`target/performance-report.md`. This benchmark measures the algorithms on a developer machine;
+[PERFORMANCE.md](PERFORMANCE.md) measures the deployed service.
