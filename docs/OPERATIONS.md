@@ -2,8 +2,8 @@
 
 [Back to README](../README.md)
 
-How to run the service locally, with PostgreSQL or in Docker, how to configure it, and how it is built,
-tested and deployed to production.
+How to run the service locally, with PostgreSQL or in Docker, how to configure it, and how it is
+released to production.
 
 - [Environments](#environments)
 - [Run locally](#run-locally)
@@ -12,14 +12,14 @@ tested and deployed to production.
 - [Database schema (Flyway)](#database-schema-flyway)
 - [Configuration](#configuration)
 - [Production on Render](#production-on-render)
-- [CI/CD pipeline](#cicd-pipeline)
+- [Release process](#release-process)
 
 ## Environments
 
 | Environment | Database | How it is started |
 |---|---|---|
 | Local development and the test suite | In-memory H2 (PostgreSQL mode), so nothing to install | `./mvnw spring-boot:run`, `./mvnw verify` |
-| PostgreSQL integration tests | PostgreSQL 16 in a throw-away container (Testcontainers) | `./mvnw verify` wherever Docker is available, always in CI |
+| PostgreSQL integration tests | PostgreSQL 16 in a throw-away container (Testcontainers) | `./mvnw verify` with Docker running; skipped automatically without it |
 | Production | PostgreSQL 16, Render managed database | `prod` profile, deployed from [`render.yaml`](../render.yaml) |
 
 The same Flyway migrations create the schema in every environment, and Hibernate only validates it.
@@ -125,12 +125,9 @@ The `prod` profile also sizes the HikariCP pool for the free tier (5 connections
 The service's database variables are declared with `fromDatabase`, so Render injects the host, port,
 database name, user and password itself. No credential is stored in the repository or typed by hand.
 
-**First-time setup**
-1. In the Render dashboard choose **New > Blueprint**, select the repository and apply it. Render creates
-   the database and the web service.
-2. On the web service's **Settings** page, copy the **Deploy Hook** URL.
-3. Add the URL to the GitHub repository as the secret `RENDER_DEPLOY_HOOK_URL`, under Settings > Secrets
-   and variables > Actions. From then on, CI deploys every change that passes.
+**First-time setup:** in the Render dashboard choose **New > Blueprint**, select the repository and
+apply it. Render creates the database and the web service. Later changes to `render.yaml` are applied
+with the Blueprint's **Manual sync**.
 
 **Verify a deployment**
 - `/actuator/health` returns `{"status":"UP"}`; Render also uses this endpoint as its health check.
@@ -147,22 +144,15 @@ database name, user and password itself. No credential is stored in the reposito
 - **Failed deploys are safe:** a new version only replaces the running one after it passes the health
   check. A deploy that fails to start leaves the previous version live.
 
-## CI/CD pipeline
+## Release process
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) has three jobs:
-
-| Job | When | What it does |
-|---|---|---|
-| Build and test | Every push and pull request | `./mvnw verify`: all tests on H2, the PostgreSQL integration tests on a real PostgreSQL 16 (Testcontainers), and the 85% coverage gate; uploads test and coverage reports |
-| Deploy to Render | Pushes to `main`, after the build passes | Calls the Render deploy hook, then waits until `/actuator/info` reports the new commit |
-| Verify the live deployment | After the deploy | Runs the Postman collection against the live server with newman; uploads the results |
-
-A change reaches production only after every test has passed, and every deployment is verified against
-the live server.
-
-**Current status:** GitHub has placed a billing lock on the repository owner's account, so GitHub Actions
-does not start workflow runs at the moment. This is awaiting GitHub Support. Until it is lifted, the same
-steps are run by hand:
-1. `./mvnw verify`.
-2. **Manual Deploy > Deploy latest commit** in Render.
-3. The Postman collection against the live server.
+1. **Test:** `./mvnw verify` runs the whole suite and enforces the coverage gate. With Docker running,
+   it includes the PostgreSQL integration tests, which start the app with the `prod` profile against a
+   real PostgreSQL 16.
+2. **Deploy:** push to `main`, then choose **Manual Deploy > Deploy latest commit** on the web service in
+   Render. The service is deployed from the public repository URL, so Render does not deploy on push.
+   Connecting the repository to Render through its GitHub app would enable that.
+3. **Go live:** Render switches traffic to the new version only after it passes the `/actuator/health`
+   check. If the new version fails to start, the previous one keeps serving.
+4. **Confirm:** `/actuator/info` reports the deployed `commit` and the database, and the Postman
+   collection passes against the live URL.

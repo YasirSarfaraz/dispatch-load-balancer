@@ -53,8 +53,8 @@ class DefaultDispatchServiceTest {
     @BeforeEach
     void setUp() {
         when(greedy.name()).thenReturn(StrategyNames.GREEDY);
-        service = new DefaultDispatchService(new DispatchStrategyRegistry(List.of(greedy)), orderService,
-                vehicleService, new DispatchPlanMapper());
+        service = new DefaultDispatchService(new DispatchStrategyRegistry(List.of(greedy)),
+                new DispatchSnapshotReader(vehicleService, orderService), new DispatchPlanMapper());
     }
 
     @Test
@@ -118,8 +118,8 @@ class DefaultDispatchServiceTest {
     void reportsTheStrategyThatActuallyRan() {
         DispatchStrategy ortools = org.mockito.Mockito.mock(DispatchStrategy.class);
         when(ortools.name()).thenReturn(StrategyNames.ORTOOLS);
-        service = new DefaultDispatchService(new DispatchStrategyRegistry(List.of(greedy, ortools)), orderService,
-                vehicleService, new DispatchPlanMapper());
+        service = new DefaultDispatchService(new DispatchStrategyRegistry(List.of(greedy, ortools)),
+                new DispatchSnapshotReader(vehicleService, orderService), new DispatchPlanMapper());
         when(vehicleService.findAllVehicles()).thenReturn(List.of(veh1));
         when(orderService.findAllOrders()).thenReturn(List.of());
         // OR-Tools fell back to greedy (e.g. too many orders): the response says what really ran.

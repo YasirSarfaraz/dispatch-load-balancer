@@ -2,6 +2,10 @@ package com.freightfox.dispatch.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.freightfox.dispatch.entity.DeliveryOrder;
+import com.freightfox.dispatch.entity.Priority;
+import com.freightfox.dispatch.service.OrderService;
+import com.freightfox.dispatch.service.VehicleService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +17,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -24,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -33,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * The full application with the real {@code prod} profile (application-prod.yml: PostgreSQL driver,
  * HikariCP settings, Flyway, schema validation) against a real PostgreSQL 16. The container's address and
  * credentials are passed through the same DB_* variables Render injects. Runs wherever Docker is available
- * (always in CI) and is skipped otherwise; every other test uses in-memory H2.
+ * and is skipped otherwise; every other test uses in-memory H2.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -61,6 +70,15 @@ class PostgresIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @MockitoSpyBean
+    private VehicleService vehicleService;
+
+    @Autowired
+    private OrderService orderService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void clearTables() throws Exception {
@@ -131,6 +149,37 @@ class PostgresIntegrationTest {
                 "INSERT INTO delivery_orders VALUES ('X2', 0, 0, 'Somewhere', 0, 'HIGH')"));
 
         assertThat(rowCount("delivery_orders")).isEqualTo(before);
+    }
+
+    @Test
+    void aCommitBetweenReadingVehiclesAndOrdersIsNotMixedIntoThePlan() throws Exception {
+        upload("/api/dispatch/orders", resource("data/sample-orders.json"));
+        upload("/api/dispatch/vehicles", resource("data/sample-vehicles.json"));
+        TransactionTemplate otherRequest = new TransactionTemplate(transactionManager);
+        otherRequest.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        doAnswer(invocation -> {
+            Object vehicles = invocation.callRealMethod();
+            // Another request commits a new order after the vehicles were read and before the orders are.
+            otherRequest.executeWithoutResult(status -> orderService.upsertOrders(List.of(
+                    new DeliveryOrder("ORD-LATE", 28.62, 77.21, "Connaught Place, Delhi, India", 5, Priority.HIGH))));
+            return vehicles;
+        }).doCallRealMethod().when(vehicleService).findAllVehicles();
+
+        JsonNode planInProgress = json(get("/api/dispatch/plan"));
+        JsonNode nextPlan = json(get("/api/dispatch/plan"));
+
+        assertThat(orderCount(planInProgress)).as("plan read from one snapshot").isEqualTo(30);
+        assertThat(planInProgress.toString()).doesNotContain("ORD-LATE");
+        assertThat(orderCount(nextPlan)).isEqualTo(31);
+        assertThat(nextPlan.toString()).contains("ORD-LATE");
+    }
+
+    private static int orderCount(JsonNode plan) {
+        int count = plan.get("unassignedOrders").size();
+        for (JsonNode vehicle : plan.get("dispatchPlan")) {
+            count += vehicle.get("assignedOrders").size();
+        }
+        return count;
     }
 
     private Integer rowCount(String table) {

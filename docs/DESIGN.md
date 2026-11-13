@@ -89,9 +89,12 @@ flowchart LR
 ```
 
 Request flow for `GET /api/dispatch/plan`: the controller passes the `strategy` parameter to
-`DispatchService`, which resolves the strategy in the registry (unknown name: 400), loads vehicles
-(none: 400) and orders, runs the algorithm outside any transaction, and maps the internal
-`DispatchResult` to the response DTO. The plan is computed on demand and never persisted.
+`DispatchService`, which resolves the strategy in the registry (unknown name: 400), then reads vehicles
+(none: 400) and orders through `DispatchSnapshotReader`. Both reads run in one read-only REPEATABLE READ
+transaction, which is snapshot isolation on PostgreSQL, so a concurrent upload can never be half in a
+plan. The service then runs the algorithm outside any transaction, so no database connection is held
+during a 3-second OR-Tools search, and maps the internal `DispatchResult` to the response DTO. The plan
+is computed on demand and never persisted.
 
 ## Package structure
 

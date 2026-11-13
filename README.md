@@ -7,7 +7,7 @@ capacity-safe, priority-aware dispatch plan.**
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white)
 ![OR-Tools](https://img.shields.io/badge/Google%20OR--Tools-9.15-4285F4?logo=google&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C133%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C140%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-97.9%25-brightgreen)
 ![Postman](https://img.shields.io/badge/Postman%20on%20live%20server-398%20assertions%20passing-FF6C37?logo=postman&logoColor=white)
 
@@ -28,7 +28,7 @@ capacity-safe, priority-aware dispatch plan.**
 - [How dispatching works](#how-dispatching-works)
 - [Results on the live deployment](#results-on-the-live-deployment)
 - [Tests and coverage](#tests-and-coverage)
-- [Deployment and CI/CD](#deployment-and-cicd)
+- [Deployment](#deployment)
 - [Tech stack](#tech-stack)
 - [Project structure](#project-structure)
 - [Assumptions](#assumptions)
@@ -85,7 +85,7 @@ has ready-made examples ("Assignment example" and "Sample dataset (Delhi NCR)") 
 | Java, REST, testable by Postman, no UI | Java 21 / Spring Boot REST API; Postman suite included | Postman, all folders |
 | Design patterns and refactoring | Strategy and registry, DTO and mapper, template method, adapter, fallback, bulkhead | [docs/DESIGN.md](docs/DESIGN.md#design-patterns) |
 | API documentation and how to run | Swagger UI on the live server, this README, [docs/API.md](docs/API.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Live URL |
-| TDD, JUnit and test coverage | 1,133 JUnit tests plus PostgreSQL integration tests, 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
+| TDD, JUnit and test coverage | 1,140 JUnit tests (6 of them against a real PostgreSQL 16), 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
 | Efficient database operations | PostgreSQL 16 in production with Flyway migrations; chunked upsert: one `SELECT` per 1,000 rows, then batched `INSERT`/`UPDATE`; proven by tests that count SQL statements | Postman folders 3 and 6, `/actuator/info` |
 | Code quality and structure | Layered packages, thin controllers, entities never leave the service layer | [Project structure](#project-structure) |
 | Error handling | Strict validation, one error shape, no stack traces, unassignable orders reported with a reason | Postman folders 4 and 5 |
@@ -134,8 +134,9 @@ configuration and deployment are covered in [docs/OPERATIONS.md](docs/OPERATIONS
 The architecture is layered:
 - **Controllers** are thin: they validate the request DTOs and delegate to services.
 - **Uploads** go through one shared chunked upserter.
-- **Plans** are built by `DispatchService`, which resolves a strategy from the registry, loads vehicles
-  and orders, runs the algorithm outside any transaction and maps the result to a response DTO.
+- **Plans** are built by `DispatchService`, which resolves a strategy from the registry, reads vehicles
+  and orders from one consistent database snapshot, runs the algorithm outside any transaction and
+  maps the result to a response DTO.
 - **Errors** from anywhere pass through a single `@RestControllerAdvice`, and JPA entities never leave
   the service layer.
 
@@ -245,11 +246,11 @@ are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 | JUnit tests | Line coverage | Branch coverage | Build gate |
 |---|---|---|---|
-| **1,133** passing | **97.91%** | **87.87%** | `./mvnw verify` fails below 85% line coverage |
+| **1,140** passing | **97.93%** | **87.93%** | `./mvnw verify` fails below 85% line coverage |
 
-The build also contains 5 integration tests that start the app with the real `prod` profile against
-PostgreSQL 16 (Testcontainers). They need Docker, so they run in CI and are skipped on machines without
-it.
+Six of these tests start the app with the real `prod` profile against a PostgreSQL 16 that Testcontainers
+creates for the run and removes afterwards. They need Docker; on a machine without it, they are skipped
+automatically.
 
 The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It covers:
 - every validation rule and exact error message;
@@ -257,27 +258,27 @@ The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It cov
 - the exact sample routes (73.42 km);
 - every OR-Tools fallback and the concurrency bulkhead;
 - JDBC batching, proven by counting the real SQL statements;
-- the production profile's configuration, bound exactly as at start-up.
+- the production profile's configuration, bound exactly as at start-up;
+- consistent plans: an upload committed while a plan is being read never ends up half in it (proven on
+  PostgreSQL).
 
 The Postman collection adds 398 assertions over HTTP against the live server. See
 [docs/TESTING.md](docs/TESTING.md).
 
-## Deployment and CI/CD
+## Deployment
 
 - **Infrastructure as code.** [`render.yaml`](render.yaml) declares the PostgreSQL 16 database and the
   Docker web service in the same region. Render injects the database host and credentials into the
   service, so no secret is stored in the repository.
 - **Schema.** [Flyway](src/main/resources/db/migration) migrations with primary keys and `CHECK`
   constraints create the schema. Hibernate only validates it (`ddl-auto: validate`).
-- **Pipeline.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs in three stages:
-  1. On every push and pull request: build, run all tests (H2 and PostgreSQL) and enforce the coverage
-     gate.
-  2. On `main`: deploy to Render through its deploy hook, then wait until `/actuator/info` reports the
-     new commit.
-  3. Run the Postman suite against the live server with newman.
-- **Pipeline status.** GitHub has placed a billing lock on the owner's account, so it currently does not
-  start workflow runs; this is awaiting GitHub Support. Until then the same checks are run by hand:
-  `./mvnw verify`, then a manual deploy, then the Postman suite against the live server.
+- **Release process.**
+  1. `./mvnw verify` runs all 1,140 tests, the PostgreSQL ones included.
+  2. Deploy the commit from the Render dashboard (**Manual Deploy > Deploy latest commit**). A version
+     only goes live after it passes the `/actuator/health` check, so a broken build never replaces a
+     working one.
+  3. Confirm the release: `/actuator/info` shows the deployed commit and the database, and the Postman
+     collection runs against the live server.
 
 ## Tech stack
 
@@ -301,7 +302,6 @@ dispatch-load-balancer/
 │   └── test/
 │       ├── java/com/freightfox/dispatch/   Unit, integration, end-to-end and benchmark tests
 │       └── resources/                      Sample datasets and CVRPLIB benchmark instances
-├── .github/workflows/ci.yml                CI/CD: build and test, deploy to Render, verify live with newman
 ├── docs/                                   API, algorithms, design, operations, testing, performance
 ├── postman/                                Evaluation suite: 74 requests, 398 assertions
 ├── samples/                                Ready-to-use request bodies (Delhi NCR dataset)
@@ -354,6 +354,10 @@ The full list of decisions is in [docs/DESIGN.md](docs/DESIGN.md#assumptions-and
 - **Free-tier hosting.** The live web service sleeps when idle; its first request can take up to about
   2 minutes, and it has a small CPU share. Render's free PostgreSQL plan expires on 13 December 2026,
   after the evaluation window; a paid plan removes both limits.
+- **The API is open.** There is no authentication, deliberately, so reviewers can test it without
+  credentials. Anyone can therefore delete the stored data or regenerate the test data; the Postman
+  collection's last folder restores the sample dataset. A real deployment would put an API key or OAuth
+  in front of the write and delete endpoints.
 - **Request size is not capped in the application.** For public exposure, put a body-size limit in a
   reverse proxy.
 
