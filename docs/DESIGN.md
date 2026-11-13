@@ -53,31 +53,69 @@ The arrows in the diagram, one flow per row:
 
 ## Package structure
 
-```
+```text
 com.freightfox.dispatch
-|-- DispatchLoadBalancerApplication   Spring Boot entry point (@ConfigurationPropertiesScan)
-|-- config        Typed settings (DispatchProperties: app.dispatch.*, TestDataProperties: app.test-data.*) and OpenAPI metadata
-|-- controller    Thin REST controllers, API paths/messages (ApiMessages) and Swagger examples (OpenApiExamples)
-|-- distance      DistanceCalculator interface, HaversineDistanceCalculator, HaversineTable (trig-free hot-loop distances)
-|-- dto
-|   |-- request   Validated request records (OrdersRequest, OrderRequest, VehiclesRequest, VehicleRequest)
-|   `-- response  Response records (StatusResponse, ErrorResponse, DispatchPlanResponse, VehiclePlanResponse, ...)
-|-- entity        JPA entities DeliveryOrder and Vehicle (String primary keys, Persistable) and enum Priority
-|-- exception     BadRequestException hierarchy, ErrorMessages constants, GlobalExceptionHandler, JSON error translation
-|-- mapper        RequestMapper (DTO to entity) and DispatchPlanMapper (DispatchResult to response DTO)
-|-- repository    Spring Data JPA repositories
-|-- service       Service interfaces (OrderService, VehicleService, DispatchService) and UpsertResult
-|   `-- impl      Default implementations and ChunkedUpserter (shared chunked upsert)
-|-- strategy      DispatchStrategy contract, DispatchResult, VehicleRoute, UnassignedOrder, StrategyNames, UnassignmentReasons
-|   |-- greedy    GreedyPriorityDispatchStrategy, CapacityAssigner, RouteOptimizer (nearest-neighbour + 2-opt), DispatchOrdering
-|   |-- ortools   OrToolsDispatchStrategy, CvrpModelBuilder, CvrpModel, DropPenalties, OrToolsCvrpSolver, OrToolsNativeLoader, ...
-|   `-- registry  DispatchStrategyRegistry (strategy lookup by name)
-`-- testdata      TestDataGenerator (30 Indian cities, seeded Random), TestDataService, IndianCity
+├── DispatchLoadBalancerApplication     Spring Boot entry point
+│
+├── controller                          REST endpoints, API constants, Swagger examples
+├── dto
+│   ├── request                         Validated request records
+│   └── response                        Response records
+├── exception                           Exception hierarchy and the global error handler
+│
+├── service                             Service interfaces
+│   └── impl                            Implementations, chunked upserter, snapshot reader
+├── mapper                              Request-to-entity and result-to-response mapping
+│
+├── strategy                            DispatchStrategy contract and the plan result model
+│   ├── registry                        Strategy lookup by name
+│   ├── greedy                          Priority-first greedy + route improvement
+│   └── ortools                         OR-Tools CVRP model, solver adapter, fallbacks
+├── distance                            Haversine distance calculation
+│
+├── entity                              JPA entities and the Priority enum
+├── repository                          Spring Data JPA repositories
+│
+├── config                              Typed configuration, OpenAPI metadata, actuator info
+└── testdata                            Seeded test-data generator (demo endpoint)
 ```
 
-Conventions: constructor injection only, records for DTOs, all API strings in constants (`ApiMessages`,
-`ErrorMessages`, `UnassignmentReasons`, `StrategyNames`), SLF4J logging, no JPA entity ever leaves the
-service layer.
+### Packages by layer
+
+| Layer | Package | Key classes | Responsibility |
+|---|---|---|---|
+| **API** | `controller` | `DispatchController`, `TestDataController`, `ServerTimingAdvice`, `ApiMessages` | HTTP endpoints, request validation, `Server-Timing` header; no business logic |
+| | `dto.request`, `dto.response` | `OrdersRequest`, `VehiclesRequest`, `DispatchPlanResponse`, `ErrorResponse` | Immutable records that define the API contract |
+| | `exception` | `GlobalExceptionHandler`, `JsonErrorTranslator`, `BadRequestException` | One error format for every failure; readable messages for malformed JSON |
+| **Application** | `service`, `service.impl` | `DefaultOrderService`, `DefaultVehicleService`, `DefaultDispatchService`, `ChunkedUpserter`, `DispatchSnapshotReader` | Transactions, the chunked upsert, plan orchestration, consistent reads |
+| | `mapper` | `RequestMapper`, `DispatchPlanMapper` | Keep JPA entities out of the API, and the API out of the algorithms |
+| **Domain (algorithms)** | `strategy` | `DispatchStrategy`, `DispatchResult`, `VehicleRoute`, `UnassignmentReasons` | The contract every algorithm implements, and its result model |
+| | `strategy.registry` | `DispatchStrategyRegistry` | Selects a strategy by name |
+| | `strategy.greedy` | `GreedyPriorityDispatchStrategy`, `CapacityAssigner`, `RouteOptimizer` | Priority-first assignment, nearest-neighbour and 2-opt route improvement |
+| | `strategy.ortools` | `OrToolsDispatchStrategy`, `CvrpModelBuilder`, `DropPenalties`, `OrToolsCvrpSolver`, `OrToolsNativeLoader` | CVRP model, solver adapter, warm start, priority guard, fallbacks |
+| | `distance` | `DistanceCalculator`, `HaversineDistanceCalculator`, `HaversineTable` | Great-circle distance; precomputed trigonometry for hot loops |
+| **Persistence** | `entity`, `repository` | `DeliveryOrder`, `Vehicle`, `Priority`, `DeliveryOrderRepository`, `VehicleRepository` | JPA mapping of the Flyway schema; Spring Data access |
+| **Support** | `config` | `DispatchProperties`, `TestDataProperties`, `OpenApiConfig`, `DatabaseInfoContributor` | Typed `app.*` settings, Swagger metadata, database in `/actuator/info` |
+| | `testdata` | `TestDataGenerator`, `TestDataService`, `IndianCity` | Seeded demo datasets around 30 Indian cities |
+
+### Dependency rules
+
+- **Dependencies point inwards:** `controller` → `service` → `strategy` / `distance`. The algorithms
+  know nothing about HTTP, JSON or the database; they receive entities and return a `DispatchResult`.
+- **Only services touch repositories,** and only inside a transaction. Plans are computed after the
+  transaction closes.
+- **Entities never reach the API.** Requests are mapped to entities, and results to response records,
+  in `mapper`.
+- **New algorithms are added, not edited in:** implement `DispatchStrategy` as a Spring bean and the
+  registry picks it up.
+
+### Conventions
+
+- Constructor injection only; no field injection.
+- Records for DTOs and value objects, with validation in the compact constructor where useful.
+- No literal strings for API messages: they live in constants (`ApiMessages`, `ErrorMessages`,
+  `UnassignmentReasons`, `StrategyNames`).
+- SLF4J logging, with one summary line per plan (strategy requested and run, sizes, distance, time).
 
 ## Design patterns
 
