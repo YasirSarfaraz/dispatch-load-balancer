@@ -1,0 +1,116 @@
+# CI/CD: build and test every change; deploy main to Render only when everything passed; then verify the
+# live deployment with the Postman evaluation suite.
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  LIVE_URL: https://dispatch-load-balancer-yl5j.onrender.com
+
+jobs:
+  build:
+    name: Build and test (H2 + PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Unit, integration and end-to-end tests on H2, the PostgreSQL integration tests on a real
+      # PostgreSQL 16 (Testcontainers, Docker is available on the runner) and the 85% coverage gate.
+      - name: Build, test and check coverage
+        run: ./mvnw -B verify
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f target/site/jacoco/jacoco.csv ]; then
+            awk -F, 'NR>1{lm+=$8;lc+=$9;bm+=$6;bc+=$7} END {printf "| Line coverage | %.2f%% |\n| Branch coverage | %.2f%% |\n", 100*lc/(lm+lc), 100*bc/(bm+bc)}' \
+              target/site/jacoco/jacoco.csv > coverage.md
+            { echo "| Metric | Value |"; echo "|---|---|"; cat coverage.md; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/site/jacoco/
+          retention-days: 14
+
+  deploy:
+    name: Deploy to Render
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ env.LIVE_URL }}
+    steps:
+      - name: Trigger the Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Repository secret RENDER_DEPLOY_HOOK_URL is not set (Render > service > Settings > Deploy Hook)."
+            exit 1
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL" > /dev/null
+          echo "Deploy of $GITHUB_SHA requested."
+
+      # /actuator/info reports the commit Render built (RENDER_GIT_COMMIT); wait until it is this one.
+      - name: Wait until this commit is live
+        run: |
+          for attempt in $(seq 1 60); do
+            commit=$(curl -fsS --max-time 30 "$LIVE_URL/actuator/info" | jq -r '.app.commit // empty' || true)
+            if [ "$commit" = "$GITHUB_SHA" ]; then echo "Live: $commit"; exit 0; fi
+            echo "Waiting for $GITHUB_SHA (live: ${commit:-unreachable})"
+            sleep 20
+          done
+          echo "::error::Commit $GITHUB_SHA did not go live within 20 minutes."
+          exit 1
+
+  verify-live:
+    name: Verify the live deployment (Postman)
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run the Postman evaluation suite against the live server
+        run: |
+          npx --yes newman@6.2.1 run postman/DispatchLoadBalancer.postman_collection.json \
+            --env-var "baseUrl=$LIVE_URL" \
+            --reporters cli,junit --reporter-junit-export newman/results.xml
+
+      - name: Upload Postman results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postman-results
+          path: newman/
+          retention-days: 14

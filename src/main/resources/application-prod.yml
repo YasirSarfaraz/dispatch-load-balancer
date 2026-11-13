@@ -1,11 +1,18 @@
-# Activate with SPRING_PROFILES_ACTIVE=prod. Tip for PostgreSQL batching: append
-# ?reWriteBatchedInserts=true to DB_URL so the driver rewrites batches into multi-row INSERTs.
+# Production profile: PostgreSQL. Activated with SPRING_PROFILES_ACTIVE=prod.
+# On Render, render.yaml injects DB_HOST, DB_PORT, DB_NAME, DB_USERNAME and DB_PASSWORD from the
+# managed database, so no credentials live in the repository. DB_URL, if set, overrides the host fields.
 spring:
   datasource:
-    url: ${DB_URL}
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME}?reWriteBatchedInserts=true}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Small pool: the free instance has one shared CPU and the free database a low connection limit.
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 10s
+      max-lifetime: 15m
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate

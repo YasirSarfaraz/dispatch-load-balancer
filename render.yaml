@@ -1,6 +1,15 @@
-# Render Blueprint: https://render.com/docs/blueprint-spec
-# Render builds the Dockerfile, injects PORT (server.port=${PORT:8080}) and polls the health check.
-# The default profile uses in-memory H2, so no database is needed (data resets on every restart/deploy).
+# Render Blueprint (infrastructure as code): https://render.com/docs/blueprint-spec
+# One PostgreSQL database and one Docker web service in the same region. The service runs the `prod`
+# profile and receives the database host and credentials from Render itself (fromDatabase), so no
+# secret is stored in this repository.
+databases:
+  - name: dispatch-db
+    plan: free
+    region: singapore
+    databaseName: dispatch
+    user: dispatch
+    postgresMajorVersion: "16"
+
 services:
   - type: web
     name: dispatch-load-balancer
@@ -10,7 +19,31 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /actuator/health
-    autoDeploy: true
+    # Deploys are triggered by the CI pipeline (.github/workflows/ci.yml) only after the build and every
+    # test have passed, through the service's deploy hook.
+    autoDeploy: false
     envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
       - key: JAVA_OPTS
         value: -XX:MaxRAMPercentage=75
+      - key: DB_HOST
+        fromDatabase:
+          name: dispatch-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: dispatch-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: dispatch-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: dispatch-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: dispatch-db
+          property: password

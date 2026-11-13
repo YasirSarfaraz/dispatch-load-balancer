@@ -9,6 +9,8 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 import java.util.Objects;
@@ -43,7 +45,9 @@ public class DeliveryOrder implements Persistable<String> {
     @Column(name = "package_weight", nullable = false)
     private int packageWeight;
 
+    // Plain VARCHAR on every database (the migration adds a CHECK constraint), never a native enum type.
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "priority", length = 10, nullable = false)
     private Priority priority;
 
