@@ -86,8 +86,7 @@ springdoc:
     path: /swagger-ui.html
     # The bare service URL redirects to Swagger UI instead of answering 404.
     use-root-path: true
-    operations-sorter: method
-    tags-sorter: alpha
+    # No sorters: groups and operations appear in the order OpenApiConfig defines (the request flow).
 
 app:
   dispatch:

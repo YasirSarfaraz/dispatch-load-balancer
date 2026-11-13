@@ -11,8 +11,8 @@ The project is tested on three levels:
 
 | Suite | Scope | Result |
 |---|---|---|
-| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests, every Spring test on a real PostgreSQL 16 (Testcontainers) | **1,142** tests, 0 failures, 0 skipped |
-| JaCoCo | Coverage of the JUnit suite (build fails below 85% lines) | **97.93%** lines (1,232 of 1,258), **87.93%** branches (386 of 439) |
+| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests, every Spring test on a real PostgreSQL 16 (Testcontainers) | **1,149** tests, 0 failures, 0 skipped |
+| JaCoCo | Coverage of the JUnit suite (build fails below 85% lines) | **98.00%** lines (1,275 of 1,301), **87.80%** branches (403 of 459) |
 | Postman | 74 requests against the live server | **398** assertions, all passing |
 
 - [JUnit suite](#junit-suite)
@@ -26,7 +26,7 @@ The project is tested on three levels:
 ./mvnw verify     # tests + JaCoCo report (target/site/jacoco/index.html) + 85% line-coverage gate
 ```
 
-The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It has 41 test classes under
+The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It has 42 test classes under
 `src/test/java`, plus shared test helpers.
 
 | Area | Key test classes | What they prove |
@@ -41,7 +41,7 @@ The suite was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It ha
 | Mappers, model | `DispatchPlanMapperTest`, `RequestMapperTest`, `PriorityTest` | Distance formatting (`"14.44 km"`), visiting order preserved, DTO mapping |
 | End to end | `SampleDatasetIntegrationTest`, `DispatchApiIntegrationTest`, `TestDataIntegrationTest`, `LargeBatchIntegrationTest` | Sample dataset through HTTP and PostgreSQL for both strategies; full wiring; test-data generation and the OR-Tools cap; a 50,000-order request body |
 | Test data | `TestDataGeneratorTest`, `TestDataServiceTest` | Determinism per seed, ranges, priority mix, replace semantics and limits |
-| Configuration | `ProductionConfigurationTest`, `AppliedMigrationsTest`, `DatabaseInfoContributorTest` | `application.yml` binds exactly as at start-up with the variables Render injects, and without them (local defaults); migrations applied in production are never edited; `/actuator/info` reports the database |
+| Configuration | `ProductionConfigurationTest`, `AppliedMigrationsTest`, `DatabaseInfoContributorTest`, `OpenApiConfigTest` | Swagger groups and operations follow the request flow; `application.yml` binds exactly as at start-up with the variables Render injects, and without them (local defaults); migrations applied in production are never edited; `/actuator/info` reports the database |
 
 ## Postman evaluation suite
 

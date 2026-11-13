@@ -1,5 +1,6 @@
 package com.freightfox.dispatch.controller;
 
+import com.freightfox.dispatch.config.OpenApiConfig;
 import com.freightfox.dispatch.dto.response.ErrorResponse;
 import com.freightfox.dispatch.dto.response.TestDataResponse;
 import com.freightfox.dispatch.testdata.TestDataResult;
@@ -11,7 +12,6 @@ import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,9 +26,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(ApiMessages.BASE_PATH)
 @ConditionalOnProperty(prefix = "app.test-data", name = "enabled", havingValue = "true", matchIfMissing = true)
-@Tag(name = "Test data (demo)",
-        description = "Demo/testing only. Generates a reproducible dataset around 30 Indian cities and "
-                + "REPLACES all stored orders and vehicles with it. Disable with app.test-data.enabled=false.")
 public class TestDataController {
 
     public static final String TEST_DATA_PATH = "/test-data";
@@ -47,7 +44,7 @@ public class TestDataController {
     }
 
     @PostMapping(value = TEST_DATA_PATH, produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Generate test data (demo; replaces all orders and vehicles)",
+    @Operation(tags = OpenApiConfig.TEST_DATA_TAG, summary = "Generate test data (demo; replaces all orders and vehicles)",
             description = """
                     Demo/testing endpoint. Deletes ALL stored orders and vehicles, then generates \
                     `orders` orders and `vehicles` vehicles placed up to ~15 km around 30 real Indian \

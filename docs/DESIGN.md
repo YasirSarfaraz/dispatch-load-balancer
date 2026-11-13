@@ -189,11 +189,14 @@ com.freightfox.dispatch
 **Operations**
 - PostgreSQL 16 is the only database: Render's managed database in production, `compose.yaml` locally,
   and a Testcontainers instance for the test suite, so tests exercise the production engine.
-- Flyway owns the schema (versioned migrations, primary keys, CHECK constraints) on both databases;
+- Flyway owns the schema (versioned migrations, primary keys, CHECK constraints);
   Hibernate only validates it, so entity/schema drift stops the application at start-up.
 - The OpenAPI server URL is relative (`/`), so Swagger "Try it out" works locally, in Docker and on
   Render; `forward-headers-strategy: framework` keeps redirects on HTTPS behind Render's proxy.
-- Actuator exposes `health` only, without details.
+- Actuator exposes `health` (without details) and `info` (version, commit, database) only.
+- Swagger UI follows the request flow: **Dispatch** (upload orders, upload vehicles, compute the plan),
+  then **Reset** (the two deletes), then **Test data (demo)**. `OpenApiConfig` fixes that order and
+  every operation documents the status codes it can return, with real example bodies.
 
 ## How the design scales
 

@@ -119,7 +119,7 @@ the browser (the response is almost 1 MB).
 **Screen:** the end of a finished `./mvnw clean verify` run, then `target/site/jacoco/index.html`.
 
 > The project was built test-first, with JUnit 5, Mockito, MockMvc and AssertJ. Maven verify runs 1,122
-> tests, and enforces an 85 percent line-coverage gate with JaCoCo. Line coverage is at 97.9 percent.
+> tests, and enforces an 85 percent line-coverage gate with JaCoCo. Line coverage is at 98 percent.
 > The tests cover every validation rule and exact error message, the high-priority rule on random data,
 > the exact sample routes, every OR-Tools fallback, and they prove JDBC batching by counting the real SQL
 > statements.

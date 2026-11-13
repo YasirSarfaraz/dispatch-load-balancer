@@ -188,6 +188,22 @@ public final class OpenApiExamples {
               "timestamp": "2026-11-12T10:15:30.123Z"
             }
             """;
+    public static final String CONCURRENT_CONFLICT_ERROR = """
+            {
+              "status": "error",
+              "message": "The request conflicts with data that was changed concurrently; please retry",
+              "errors": [],
+              "timestamp": "2026-11-12T10:15:30.123Z"
+            }
+            """;
+    public static final String UNSUPPORTED_MEDIA_TYPE_ERROR = """
+            {
+              "status": "error",
+              "message": "Content type 'text/plain' is not supported",
+              "errors": ["supported content types: application/json"],
+              "timestamp": "2026-11-12T10:15:30.123Z"
+            }
+            """;
 
     private OpenApiExamples() {
     }

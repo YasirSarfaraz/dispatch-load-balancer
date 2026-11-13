@@ -1,5 +1,7 @@
 package com.freightfox.dispatch.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.freightfox.dispatch.entity.DeliveryOrder;
 import com.freightfox.dispatch.entity.Vehicle;
 import com.freightfox.dispatch.service.OrderService;
@@ -199,5 +201,43 @@ class DispatchApiIntegrationTest {
                 .andExpect(jsonPath("$.paths['/api/dispatch/orders'].post.responses['400']").exists())
                 .andExpect(jsonPath("$.paths['/api/dispatch/plan'].get.parameters[0].schema.enum[1]").value("ortools"))
                 .andExpect(jsonPath("$.paths['/api/dispatch/vehicles'].delete").exists());
+    }
+
+    @Test
+    void swaggerShowsTheOperationsInTheOrderTheApiIsUsed() throws Exception {
+        JsonNode doc = new ObjectMapper().readTree(mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+
+        assertThat(doc.get("tags").findValuesAsText("name"))
+                .containsExactly("Dispatch", "Reset", "Test data (demo)");
+        List<String> paths = new ArrayList<>();
+        doc.get("paths").fieldNames().forEachRemaining(paths::add);
+        assertThat(paths).containsExactly("/api/dispatch/orders", "/api/dispatch/vehicles",
+                "/api/dispatch/plan", "/api/dispatch/test-data");
+
+        assertThat(tagsOf(doc, "/api/dispatch/orders", "post")).containsExactly("Dispatch");
+        assertThat(tagsOf(doc, "/api/dispatch/vehicles", "post")).containsExactly("Dispatch");
+        assertThat(tagsOf(doc, "/api/dispatch/plan", "get")).containsExactly("Dispatch");
+        assertThat(tagsOf(doc, "/api/dispatch/orders", "delete")).containsExactly("Reset");
+        assertThat(tagsOf(doc, "/api/dispatch/vehicles", "delete")).containsExactly("Reset");
+        assertThat(tagsOf(doc, "/api/dispatch/test-data", "post")).containsExactly("Test data (demo)");
+    }
+
+    @Test
+    void swaggerDocumentsEveryErrorAnUploadCanReturnAndTheRealLengthLimits() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/dispatch/orders'].post.responses['409']").exists())
+                .andExpect(jsonPath("$.paths['/api/dispatch/orders'].post.responses['415']").exists())
+                .andExpect(jsonPath("$.paths['/api/dispatch/vehicles'].post.responses['409']").exists())
+                .andExpect(jsonPath("$.paths['/api/dispatch/vehicles'].post.responses['415']").exists())
+                .andExpect(jsonPath("$.components.schemas.OrderRequest.properties.orderId.minLength").value(1))
+                .andExpect(jsonPath("$.components.schemas.VehicleRequest.properties.currentAddress.minLength").value(1));
+    }
+
+    private static List<String> tagsOf(JsonNode doc, String path, String method) {
+        List<String> tags = new ArrayList<>();
+        doc.get("paths").get(path).get(method).get("tags").forEach(tag -> tags.add(tag.asText()));
+        return tags;
     }
 }

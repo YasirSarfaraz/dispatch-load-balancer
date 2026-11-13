@@ -1,5 +1,6 @@
 package com.freightfox.dispatch.controller;
 
+import com.freightfox.dispatch.config.OpenApiConfig;
 import com.freightfox.dispatch.dto.request.OrdersRequest;
 import com.freightfox.dispatch.dto.request.VehiclesRequest;
 import com.freightfox.dispatch.dto.response.DispatchPlanResponse;
@@ -16,7 +17,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -30,16 +30,18 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * REST API of the Dispatch Load Balancer. Deliberately thin: validates and maps the request, then
  * delegates to the services. Strategy selection happens in the service through the registry, so
- * there is no branching on the strategy here.
+ * there is no branching on the strategy here. Swagger groups the operations by tag, in the order
+ * {@link OpenApiConfig} defines.
  */
 @RestController
 @RequestMapping(path = ApiMessages.BASE_PATH, produces = MediaType.APPLICATION_JSON_VALUE)
-@Tag(name = ApiMessages.TAG, description = ApiMessages.TAG_DESCRIPTION)
 public class DispatchController {
 
     private static final String JSON = MediaType.APPLICATION_JSON_VALUE;
     private static final String OK = "200";
     private static final String BAD_REQUEST = "400";
+    private static final String CONFLICT = "409";
+    private static final String UNSUPPORTED_MEDIA_TYPE = "415";
 
     private final OrderService orderService;
     private final VehicleService vehicleService;
@@ -55,7 +57,7 @@ public class DispatchController {
     }
 
     @PostMapping(path = ApiMessages.ORDERS_PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Upload delivery orders (upsert)",
+    @Operation(tags = OpenApiConfig.DISPATCH_TAG, summary = "Upload delivery orders (upsert)",
             description = "Inserts new orders and updates existing ones matched by orderId. Accepts large "
                     + "batches (tested with 50,000 orders); rows are written in chunks with JDBC batching. "
                     + "The whole batch is validated first and is rejected if any order is invalid or an "
@@ -78,13 +80,20 @@ public class DispatchController {
                     @ExampleObject(name = "Duplicate orderId", value = OpenApiExamples.DUPLICATE_ORDER_ERROR),
                     @ExampleObject(name = "Malformed JSON", value = OpenApiExamples.MALFORMED_JSON_ERROR)
             }))
+    @ApiResponse(responseCode = CONFLICT, description = "Another request changed the same orders at the same "
+            + "time; retry the request", content = @Content(mediaType = JSON,
+            schema = @Schema(implementation = ErrorResponse.class),
+            examples = @ExampleObject(value = OpenApiExamples.CONCURRENT_CONFLICT_ERROR)))
+    @ApiResponse(responseCode = UNSUPPORTED_MEDIA_TYPE, description = "The body is not sent as application/json",
+            content = @Content(mediaType = JSON, schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = OpenApiExamples.UNSUPPORTED_MEDIA_TYPE_ERROR)))
     public StatusResponse addOrders(@Valid @RequestBody OrdersRequest request) {
         orderService.upsertOrders(requestMapper.toOrders(request));
         return StatusResponse.success(ApiMessages.ORDERS_ACCEPTED);
     }
 
     @PostMapping(path = ApiMessages.VEHICLES_PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Upload vehicles (upsert)",
+    @Operation(tags = OpenApiConfig.DISPATCH_TAG, summary = "Upload vehicles (upsert)",
             description = "Inserts new vehicles and updates existing ones matched by vehicleId. The whole "
                     + "batch is validated first and is rejected if any vehicle is invalid or a vehicleId "
                     + "occurs twice.")
@@ -105,13 +114,20 @@ public class DispatchController {
                     @ExampleObject(name = "Duplicate vehicleId", value = OpenApiExamples.DUPLICATE_VEHICLE_ERROR),
                     @ExampleObject(name = "Malformed JSON", value = OpenApiExamples.MALFORMED_JSON_ERROR)
             }))
+    @ApiResponse(responseCode = CONFLICT, description = "Another request changed the same vehicles at the same "
+            + "time; retry the request", content = @Content(mediaType = JSON,
+            schema = @Schema(implementation = ErrorResponse.class),
+            examples = @ExampleObject(value = OpenApiExamples.CONCURRENT_CONFLICT_ERROR)))
+    @ApiResponse(responseCode = UNSUPPORTED_MEDIA_TYPE, description = "The body is not sent as application/json",
+            content = @Content(mediaType = JSON, schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = OpenApiExamples.UNSUPPORTED_MEDIA_TYPE_ERROR)))
     public StatusResponse addVehicles(@Valid @RequestBody VehiclesRequest request) {
         vehicleService.upsertVehicles(requestMapper.toVehicles(request));
         return StatusResponse.success(ApiMessages.VEHICLES_ACCEPTED);
     }
 
     @GetMapping(ApiMessages.PLAN_PATH)
-    @Operation(summary = "Compute the dispatch plan",
+    @Operation(tags = OpenApiConfig.DISPATCH_TAG, summary = "Compute the dispatch plan",
             description = "Assigns the stored orders to the stored vehicles without exceeding any capacity, "
                     + "HIGH priority first, then MEDIUM, then LOW, minimising Haversine travel distance. Every "
                     + "vehicle is listed (unused ones with totalLoad 0 and \"0.00 km\"); assignedOrders are in "
@@ -137,7 +153,7 @@ public class DispatchController {
     }
 
     @DeleteMapping(ApiMessages.ORDERS_PATH)
-    @Operation(summary = "Delete all delivery orders", description = "Removes every stored order (one DELETE statement).")
+    @Operation(tags = OpenApiConfig.RESET_TAG, summary = "Delete all delivery orders", description = "Removes every stored order (one DELETE statement).")
     @ApiResponse(responseCode = OK, description = "Orders deleted", content = @Content(mediaType = JSON,
             schema = @Schema(implementation = StatusResponse.class),
             examples = @ExampleObject(value = OpenApiExamples.ORDERS_DELETED_RESPONSE)))
@@ -147,7 +163,7 @@ public class DispatchController {
     }
 
     @DeleteMapping(ApiMessages.VEHICLES_PATH)
-    @Operation(summary = "Delete all vehicles", description = "Removes every stored vehicle (one DELETE statement).")
+    @Operation(tags = OpenApiConfig.RESET_TAG, summary = "Delete all vehicles", description = "Removes every stored vehicle (one DELETE statement).")
     @ApiResponse(responseCode = OK, description = "Vehicles deleted", content = @Content(mediaType = JSON,
             schema = @Schema(implementation = StatusResponse.class),
             examples = @ExampleObject(value = OpenApiExamples.VEHICLES_DELETED_RESPONSE)))
