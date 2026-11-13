@@ -112,26 +112,30 @@ Every error, from any endpoint, has one shape:
 
 ## curl examples
 
-Run from the project root (the `samples/` paths are relative). Replace `http://localhost:8080` with
-`https://dispatch-load-balancer-yl5j.onrender.com` to call the live deployment. On Windows use Git Bash,
-or `curl.exe` in PowerShell. The [Postman collection](../postman/DispatchLoadBalancer.postman_collection.json)
+The examples call the live deployment. Run them from the project root (the `samples/` paths are
+relative) after setting the base URL once; for a local run use `BASE=http://localhost:8080`. On Windows
+use Git Bash, or `curl.exe` in PowerShell.
+
+```bash
+BASE=https://dispatch-load-balancer-yl5j.onrender.com
+``` The [Postman collection](../postman/DispatchLoadBalancer.postman_collection.json)
 covers the same cases with assertions and targets the live deployment by default.
 
 ### Happy path
 
 ```bash
 # Upload the 30 sample orders and 5 sample vehicles
-curl -X POST http://localhost:8080/api/dispatch/orders \
+curl -X POST $BASE/api/dispatch/orders \
   -H "Content-Type: application/json" -d @samples/orders.json
 # {"message":"Delivery orders accepted.","status":"success"}
 
-curl -X POST http://localhost:8080/api/dispatch/vehicles \
+curl -X POST $BASE/api/dispatch/vehicles \
   -H "Content-Type: application/json" -d @samples/vehicles.json
 # {"message":"Vehicle details accepted.","status":"success"}
 
 # Plan with the default strategy (greedy), or choose one explicitly
-curl http://localhost:8080/api/dispatch/plan
-curl "http://localhost:8080/api/dispatch/plan?strategy=ortools"
+curl $BASE/api/dispatch/plan
+curl "$BASE/api/dispatch/plan?strategy=ortools"
 ```
 
 Excerpt of the greedy plan for the sample data:
@@ -163,21 +167,21 @@ Excerpt of the greedy plan for the sample data:
 ### Clearing data
 
 ```bash
-curl -X DELETE http://localhost:8080/api/dispatch/orders
+curl -X DELETE $BASE/api/dispatch/orders
 # {"message":"All delivery orders deleted.","status":"success"}
 
-curl -X DELETE http://localhost:8080/api/dispatch/vehicles
+curl -X DELETE $BASE/api/dispatch/vehicles
 # {"message":"All vehicles deleted.","status":"success"}
 ```
 
 ### Test data (demo; replaces all orders and vehicles)
 
 ```bash
-curl -X POST "http://localhost:8080/api/dispatch/test-data?orders=5000&vehicles=100&seed=42"
+curl -X POST "$BASE/api/dispatch/test-data?orders=5000&vehicles=100&seed=42"
 # {"message":"Test data generated. All existing orders and vehicles were replaced.","status":"success",
 #  "ordersGenerated":5000,"vehiclesGenerated":100,"seed":42,"elapsedMs":<time to generate and store>}
 
-curl http://localhost:8080/api/dispatch/plan
+curl $BASE/api/dispatch/plan
 ```
 
 With the defaults (5,000 orders of 1-50 kg, about 127,500 kg in total, against 100 vehicles of
@@ -189,10 +193,14 @@ most of the demand.
 ### Health and API docs
 
 ```bash
-curl http://localhost:8080/actuator/health
-# {"status":"UP"}
+curl $BASE/actuator/health
+# {"status":"UP","groups":["liveness","readiness"]}
 
-curl http://localhost:8080/v3/api-docs
+curl $BASE/actuator/info
+# {"app":{"name":"dispatch-load-balancer","version":"1.0.0","commit":"<git commit>"},
+#  "database":{"product":"PostgreSQL","version":"16.x"}}
+
+curl $BASE/v3/api-docs
 ```
 
 ### Error examples
@@ -203,7 +211,7 @@ illustrative. Use `curl -i` to see the status line.
 Invalid priority (400):
 
 ```bash
-curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: application/json" \
+curl -i -X POST $BASE/api/dispatch/orders -H "Content-Type: application/json" \
   -d '{"orders":[{"orderId":"ORD100","latitude":28.6139,"longitude":77.209,"address":"Connaught Place, Delhi, India","packageWeight":10,"priority":"URGENT"}]}'
 ```
 ```json
@@ -213,7 +221,7 @@ curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: appl
 Latitude out of range (400):
 
 ```bash
-curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: application/json" \
+curl -i -X POST $BASE/api/dispatch/orders -H "Content-Type: application/json" \
   -d '{"orders":[{"orderId":"ORD100","latitude":91,"longitude":77.209,"address":"Connaught Place, Delhi, India","packageWeight":10,"priority":"HIGH"}]}'
 ```
 ```json
@@ -223,7 +231,7 @@ curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: appl
 Non-integer weight (400):
 
 ```bash
-curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: application/json" \
+curl -i -X POST $BASE/api/dispatch/orders -H "Content-Type: application/json" \
   -d '{"orders":[{"orderId":"ORD100","latitude":28.6139,"longitude":77.209,"address":"Connaught Place, Delhi, India","packageWeight":10.5,"priority":"HIGH"}]}'
 ```
 ```json
@@ -233,7 +241,7 @@ curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: appl
 Duplicate IDs in one request (400; nothing is stored):
 
 ```bash
-curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: application/json" \
+curl -i -X POST $BASE/api/dispatch/orders -H "Content-Type: application/json" \
   -d '{"orders":[{"orderId":"ORD001","latitude":28.6139,"longitude":77.209,"address":"Connaught Place, Delhi, India","packageWeight":10,"priority":"HIGH"},{"orderId":"ORD001","latitude":28.6139,"longitude":77.209,"address":"Connaught Place, Delhi, India","packageWeight":12,"priority":"LOW"}]}'
 ```
 ```json
@@ -243,7 +251,7 @@ curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: appl
 Malformed JSON (400; line and column point at the syntax error):
 
 ```bash
-curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: application/json" -d '{"orders": ['
+curl -i -X POST $BASE/api/dispatch/orders -H "Content-Type: application/json" -d '{"orders": ['
 ```
 ```json
 {"status":"error","message":"Malformed JSON request","errors":["body: invalid JSON at line 1, column 13"],"timestamp":"2026-11-12T10:15:30.123Z"}
@@ -252,7 +260,7 @@ curl -i -X POST http://localhost:8080/api/dispatch/orders -H "Content-Type: appl
 Unknown strategy (400; checked before anything else, even with an empty database):
 
 ```bash
-curl -i "http://localhost:8080/api/dispatch/plan?strategy=fastest"
+curl -i "$BASE/api/dispatch/plan?strategy=fastest"
 ```
 ```json
 {"status":"error","message":"Unknown strategy 'fastest'. Allowed values: greedy, ortools","errors":["strategy: must be one of greedy, ortools"],"timestamp":"2026-11-12T10:15:30.123Z"}
@@ -261,8 +269,8 @@ curl -i "http://localhost:8080/api/dispatch/plan?strategy=fastest"
 No vehicles stored (400):
 
 ```bash
-curl -X DELETE http://localhost:8080/api/dispatch/vehicles
-curl -i http://localhost:8080/api/dispatch/plan
+curl -X DELETE $BASE/api/dispatch/vehicles
+curl -i $BASE/api/dispatch/plan
 ```
 ```json
 {"status":"error","message":"No vehicles available for dispatch","errors":["vehicles: no vehicles are stored; add some with POST /api/dispatch/vehicles"],"timestamp":"2026-11-12T10:15:30.123Z"}
@@ -271,7 +279,7 @@ curl -i http://localhost:8080/api/dispatch/plan
 Test-data limits (400):
 
 ```bash
-curl -i -X POST "http://localhost:8080/api/dispatch/test-data?orders=60000"
+curl -i -X POST "$BASE/api/dispatch/test-data?orders=60000"
 ```
 ```json
 {"status":"error","message":"orders must be between 1 and 50000","errors":["orders: must be between 1 and 50000"],"timestamp":"2026-11-12T10:15:30.123Z"}
