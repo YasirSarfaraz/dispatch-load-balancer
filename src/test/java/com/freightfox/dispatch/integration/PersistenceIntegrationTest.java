@@ -14,17 +14,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -39,28 +33,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The full application with the real {@code prod} profile (application-prod.yml: PostgreSQL driver,
- * HikariCP settings, Flyway, schema validation) against a real PostgreSQL 16. The container's address and
- * credentials are passed through the same DB_* variables Render injects. Runs wherever Docker is available
- * and is skipped otherwise; every other test uses in-memory H2.
+ * Database behaviour on PostgreSQL 16 (the only database; started by Testcontainers for the tests): Flyway
+ * migrations, the sample plan, OR-Tools on stored data, the chunked insert-then-update upsert, the schema's
+ * CHECK constraints, and plans read from one consistent snapshot while another request commits.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("prod")
-@Testcontainers(disabledWithoutDocker = true)
-class PostgresIntegrationTest {
-
-    @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    @DynamicPropertySource
-    static void renderStyleEnvironment(DynamicPropertyRegistry registry) {
-        registry.add("DB_HOST", POSTGRES::getHost);
-        registry.add("DB_PORT", () -> POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT));
-        registry.add("DB_NAME", POSTGRES::getDatabaseName);
-        registry.add("DB_USERNAME", POSTGRES::getUsername);
-        registry.add("DB_PASSWORD", POSTGRES::getPassword);
-    }
+class PersistenceIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -87,7 +66,7 @@ class PostgresIntegrationTest {
     }
 
     @Test
-    void flywayCreatesTheSchemaOnPostgres() throws Exception {
+    void flywayCreatesTheSchema() throws Exception {
         assertThat(jdbc.queryForObject("SELECT version()", String.class)).startsWith("PostgreSQL 16");
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success", String.class))
                 .containsExactly("1");
@@ -97,7 +76,7 @@ class PostgresIntegrationTest {
     }
 
     @Test
-    void sampleDatasetGivesTheSamePlanAsOnH2() throws Exception {
+    void sampleDatasetGivesTheExpectedPlan() throws Exception {
         upload("/api/dispatch/orders", resource("data/sample-orders.json"));
         upload("/api/dispatch/vehicles", resource("data/sample-vehicles.json"));
 

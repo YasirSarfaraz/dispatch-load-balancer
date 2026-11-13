@@ -27,8 +27,7 @@ import static org.mockito.Mockito.doAnswer;
 /**
  * A plan must be computed from one consistent view of the data: the vehicles and the orders are read in
  * the <b>same</b> read-only REPEATABLE READ transaction, and the algorithm runs outside any transaction.
- * (That a commit between the two reads stays invisible is proven on PostgreSQL, where REPEATABLE READ is
- * snapshot isolation, by {@code PostgresIntegrationTest}; H2's REPEATABLE READ still allows phantom rows.)
+ * (That a commit between the two reads stays invisible is proven by {@code PersistenceIntegrationTest}.)
  */
 @SpringBootTest
 class DispatchSnapshotConsistencyIntegrationTest {

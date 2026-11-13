@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * End-to-end test over the real HTTP layer, services, H2 database and both strategies, using the
+ * End-to-end test over the real HTTP layer, services, PostgreSQL database and both strategies, using the
  * section 9 sample dataset: 30 orders (645 weight) against 5 vehicles (500 capacity).
  */
 @SpringBootTest

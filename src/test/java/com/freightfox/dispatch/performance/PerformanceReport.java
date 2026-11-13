@@ -162,7 +162,7 @@ public final class PerformanceReport {
         }
         md.append(NEWLINE);
         md.append("- **Upsert**: the real order and vehicle services into empty tables (chunked `findAllById` + ")
-                .append("`saveAll`, JDBC batching, H2 in-memory).").append(NEWLINE);
+                .append("`saveAll`, JDBC batching, PostgreSQL 16 in a local container).").append(NEWLINE);
         md.append("- **Plan**: the strategy's `plan(orders, vehicles)` on the entities loaded from the database.")
                 .append(NEWLINE);
         md.append("- **Total distance**: sum of the open routes (vehicle location to its last stop), Haversine.")
@@ -367,7 +367,7 @@ public final class PerformanceReport {
         md.append("""
                 ## Methodology
 
-                - **Setup:** one `@SpringBootTest` (real application context, H2 in-memory) runs the scenarios in a
+                - **Setup:** one `@SpringBootTest` (real application context, PostgreSQL 16 via Testcontainers) runs the scenarios in a
                   fixed order on data from the production `TestDataGenerator` with a fixed seed. Both tables are
                   cleared before each scenario, so every upsert inserts into empty tables.
                 - **Timing:** each figure is a single wall-clock run (`System.nanoTime`) after the JIT warm-up.
@@ -380,8 +380,8 @@ public final class PerformanceReport {
                 - **Memory:** a background thread samples used heap every 5 ms; "Peak heap" is the maximum sample
                   (it includes the Spring context and uncollected garbage). OR-Tools allocates its solver memory
                   off-heap, so that part is not included.
-                - **Database:** H2 in-memory is faster than a networked PostgreSQL; with the `prod` profile, add
-                  `reWriteBatchedInserts=true` to the JDBC URL to keep batched inserts efficient.
+                - **Database:** a local PostgreSQL container has no network latency, so a managed database
+                  in the cloud is slower; `reWriteBatchedInserts=true` keeps batched inserts efficient.
                 """);
     }
 

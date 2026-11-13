@@ -76,6 +76,6 @@ class LargeBatchIntegrationTest {
 
         assertThat(orderService.countOrders()).isEqualTo(ORDER_COUNT);
         assertThat(orderService.findAllOrders().get(0).getPackageWeight()).isEqualTo(8);
-        log.info("50,000-order request: insert {} ms, update {} ms (MockMvc, H2 in memory)", insertMs, updateMs);
+        log.info("50,000-order request: insert {} ms, update {} ms (MockMvc, PostgreSQL)", insertMs, updateMs);
     }
 }

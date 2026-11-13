@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *       moments, so the sum over-estimates the real peak.</li>
  * </ul>
  *
- * <p>{@link #start()} first requests a GC so the baseline is the live heap (Spring context, H2
+ * <p>{@link #start()} first requests a GC so the baseline is the live heap (Spring context, connection pool
  * data of earlier work already deleted). "Used" includes garbage not yet collected, so the
  * figures depend on the collector and the heap size (-Xmx); they are indicative, not exact.
  */

@@ -59,7 +59,7 @@
             <version>${ortools.version}</version>
         </dependency>
 
-        <!-- Schema migrations (versioned SQL in src/main/resources/db/migration), for H2 and PostgreSQL -->
+        <!-- Schema migrations (versioned SQL in src/main/resources/db/migration) -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -69,15 +69,10 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- PostgreSQL in production (prod profile); in-memory H2 for local runs and the default build -->
+        <!-- PostgreSQL: the only database (production on Render, compose.yaml locally, Testcontainers in tests) -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
         <dependency>
@@ -92,7 +87,7 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- Integration tests against a real PostgreSQL (Testcontainers; they run wherever Docker is available, e.g. CI) -->
+        <!-- Every Spring test runs against a real PostgreSQL 16 started by Testcontainers (Docker required) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>

@@ -20,10 +20,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Binds application-prod.yml exactly as Spring Boot does at start-up, with the variables Render injects,
- * so a mistake in the production profile fails the build instead of a deploy. Needs no database.
+ * Binds application.yml exactly as Spring Boot does at start-up, with the variables Render injects, so a
+ * mistake in the production configuration fails the build instead of a deploy. Needs no database.
  */
-class ProdProfileConfigurationTest {
+class ProductionConfigurationTest {
 
     private static final Map<String, Object> RENDER_ENVIRONMENT = Map.of(
             "DB_HOST", "dpg-example-a", "DB_PORT", "5432", "DB_NAME", "dispatch",
@@ -37,8 +37,7 @@ class ProdProfileConfigurationTest {
         assertThat(datasource.getUrl())
                 .isEqualTo("jdbc:postgresql://dpg-example-a:5432/dispatch?reWriteBatchedInserts=true");
         assertThat(datasource.getUsername()).isEqualTo("dispatch");
-        assertThat(datasource.getDriverClassName()).isEqualTo("org.postgresql.Driver");
-    }
+            }
 
     @Test
     void explicitDbUrlOverridesTheHostVariables() throws IOException {
@@ -49,6 +48,15 @@ class ProdProfileConfigurationTest {
                 .bind("spring.datasource", Bindable.of(DataSourceProperties.class)).get();
 
         assertThat(datasource.getUrl()).isEqualTo("jdbc:postgresql://elsewhere:6543/other");
+    }
+
+    @Test
+    void withoutRenderVariablesItConnectsToTheLocalComposeDatabase() throws IOException {
+        DataSourceProperties datasource = binder(Map.of())
+                .bind("spring.datasource", Bindable.of(DataSourceProperties.class)).get();
+
+        assertThat(datasource.getUrl()).isEqualTo("jdbc:postgresql://localhost:5432/dispatch?reWriteBatchedInserts=true");
+        assertThat(datasource.getUsername()).isEqualTo("dispatch");
     }
 
     @Test
@@ -73,7 +81,7 @@ class ProdProfileConfigurationTest {
         MutablePropertySources sources = new MutablePropertySources();
         sources.addFirst(new MapPropertySource("render-environment", environment));
         for (PropertySource<?> yaml : new YamlPropertySourceLoader()
-                .load("application-prod.yml", new ClassPathResource("application-prod.yml"))) {
+                .load("application.yml", new ClassPathResource("application.yml"))) {
             sources.addLast(yaml);
         }
         return new Binder(ConfigurationPropertySources.from(sources), new PropertySourcesPlaceholdersResolver(sources),

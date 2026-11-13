@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(properties = {
         // Own in-memory database so other test contexts cannot interfere.
-        "spring.datasource.url=jdbc:h2:mem:upsert-batching;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
+        "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///upsert_batching?TC_DAEMON=true&reWriteBatchedInserts=true",
         "spring.jpa.properties.hibernate.generate_statistics=true",
         "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=WARN"
 })

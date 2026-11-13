@@ -1,0 +1,7 @@
+# Test-only override (classpath:/config/ takes precedence over the main application.yml).
+# Every Spring test runs against a real PostgreSQL 16: the Testcontainers JDBC driver starts one container
+# for the test JVM (TC_DAEMON keeps it alive between contexts) and removes it afterwards.
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16-alpine:///dispatch?TC_DAEMON=true&reWriteBatchedInserts=true
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver

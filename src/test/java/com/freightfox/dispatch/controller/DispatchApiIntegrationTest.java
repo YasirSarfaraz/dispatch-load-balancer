@@ -35,10 +35,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Full stack (controller, validation, services, registry, mapper, JPA, H2) with a trivial test-only
+ * Full stack (controller, validation, services, registry, mapper, JPA, PostgreSQL) with a trivial test-only
  * strategy, so the pipeline is verified independently of the real algorithms.
  */
-@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:dispatch-api-it;DB_CLOSE_DELAY=-1;MODE=PostgreSQL")
+@SpringBootTest(properties = "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///dispatch_api_it?TC_DAEMON=true")
 @AutoConfigureMockMvc
 @Import(DispatchApiIntegrationTest.TestStrategyConfig.class)
 class DispatchApiIntegrationTest {

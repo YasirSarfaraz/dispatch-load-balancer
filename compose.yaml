@@ -1,0 +1,17 @@
+# Local PostgreSQL for running the service on a developer machine:
+#   docker compose up -d      then      ./mvnw spring-boot:run
+# The credentials match the defaults in application.yml (local development only; production gets its
+# credentials from Render, see render.yaml).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dispatch
+      POSTGRES_USER: dispatch
+      POSTGRES_PASSWORD: dispatch
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dispatch -d dispatch"]
+      interval: 5s
+      retries: 10

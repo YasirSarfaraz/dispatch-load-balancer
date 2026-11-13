@@ -1,7 +1,6 @@
 # Render Blueprint (infrastructure as code): https://render.com/docs/blueprint-spec
-# One PostgreSQL database and one Docker web service in the same region. The service runs the `prod`
-# profile and receives the database host and credentials from Render itself (fromDatabase), so no
-# secret is stored in this repository.
+# One PostgreSQL database and one Docker web service in the same region. The service receives the database
+# host and credentials from Render itself (fromDatabase), so no secret is stored in this repository.
 databases:
   - name: dispatch-db
     plan: free
@@ -22,8 +21,6 @@ services:
     # Released deliberately (Manual Deploy) after ./mvnw verify has passed; see docs/OPERATIONS.md.
     autoDeploy: false
     envVars:
-      - key: SPRING_PROFILES_ACTIVE
-        value: prod
       - key: JAVA_OPTS
         value: -XX:MaxRAMPercentage=75
       - key: DB_HOST

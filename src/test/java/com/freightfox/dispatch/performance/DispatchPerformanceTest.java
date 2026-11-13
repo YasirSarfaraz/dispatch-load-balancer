@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Performance scenarios of section 11.2, run only with {@code ./mvnw verify -Pperformance}.
  *
  * <p>For every scenario: generate data with the production {@link TestDataGenerator} (fixed seed),
- * upsert it through the real {@link VehicleService} / {@link OrderService} into the H2 database,
+ * upsert it through the real {@link VehicleService} / {@link OrderService} into PostgreSQL (Testcontainers),
  * load it back, time the strategy bean's {@code plan} on the loaded entities, assert every
  * invariant, then time the end-to-end {@link DispatchService#generatePlan} as well. The results
  * are written to {@code target/performance-report.md} by {@link PerformanceReport} in {@code @AfterAll}.

@@ -17,10 +17,19 @@ server:
 spring:
   application:
     name: dispatch-load-balancer
+  # PostgreSQL. On Render, render.yaml injects DB_HOST, DB_PORT, DB_NAME, DB_USERNAME and DB_PASSWORD from the
+  # managed database, so no credentials live in the repository. Without them the defaults point at the local
+  # database in compose.yaml. DB_URL, if set, overrides the host fields.
   datasource:
-    url: jdbc:h2:mem:dispatchdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
-    username: sa
-    password:
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:dispatch}?reWriteBatchedInserts=true}
+    username: ${DB_USERNAME:dispatch}
+    password: ${DB_PASSWORD:dispatch}
+    hikari:
+      # Small pool: the free instance has one shared CPU and the free database a low connection limit.
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 10000   # ms (Hikari properties are plain milliseconds)
+      max-lifetime: 900000        # ms, 15 minutes
   jpa:
     open-in-view: false
     hibernate:
