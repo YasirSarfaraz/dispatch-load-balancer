@@ -176,7 +176,7 @@
 
     <profiles>
         <!--
-            ./mvnw verify -Pperformance : runs ONLY @Tag("performance") tests and writes docs/PERFORMANCE.md.
+            ./mvnw verify -Pperformance : runs ONLY @Tag("performance") tests and writes target/performance-report.md.
             excludedGroups "none" is an ordinary tag name that no test uses, so it overrides the default
             exclusion of "performance" without excluding anything else (verified with JUnit 5 + surefire).
             The build does not fail when no performance tests exist (surefire failIfNoTests=false).

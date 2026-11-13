@@ -21,7 +21,8 @@ import java.util.Map;
 
 /**
  * Collects the measurements of every performance test class run in this JVM and renders them to
- * {@code docs/PERFORMANCE.md} (overwritten).
+ * {@code target/performance-report.md} (overwritten). The committed docs/PERFORMANCE.md holds the
+ * measurements taken against the live deployment instead.
  *
  * <p>Each performance test class calls {@link #write()} in its {@code @AfterAll}. Surefire runs
  * all test classes in one forked JVM, so this process-wide singleton accumulates the results of
@@ -31,7 +32,7 @@ import java.util.Map;
 public final class PerformanceReport {
 
     /** Relative location of the generated file under the project directory. */
-    public static final String REPORT_PATH = "docs/PERFORMANCE.md";
+    public static final String REPORT_PATH = "target/performance-report.md";
 
     private static final Logger log = LoggerFactory.getLogger(PerformanceReport.class);
     private static final PerformanceReport INSTANCE = new PerformanceReport();
@@ -100,8 +101,7 @@ public final class PerformanceReport {
     synchronized String render() {
         StringBuilder md = new StringBuilder();
         md.append("# Performance report").append(NEWLINE).append(NEWLINE);
-        md.append("[Back to README](../README.md)").append(NEWLINE).append(NEWLINE);
-        md.append("Benchmarks of the dispatch service on generated datasets and on CVRPLIB instances. Last run: ")
+                md.append("Benchmarks of the dispatch service on generated datasets and on CVRPLIB instances. Last run: ")
                 .append(ZonedDateTime.now().truncatedTo(ChronoUnit.SECONDS).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
                 .append(". Reproduce with `./mvnw verify -Pperformance` (Windows: `.\\mvnw.cmd verify -Pperformance`).")
                 .append(NEWLINE).append(NEWLINE);

@@ -64,6 +64,8 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+    # The bare service URL redirects to Swagger UI instead of answering 404.
+    use-root-path: true
     operations-sorter: method
     tags-sorter: alpha
 
