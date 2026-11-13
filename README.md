@@ -15,7 +15,6 @@ capacity-safe, priority-aware dispatch plan.**
 |---|---|
 | **Live API** | https://dispatch-load-balancer-yl5j.onrender.com (opens Swagger UI) |
 | **Postman collection** | [`postman/DispatchLoadBalancer.postman_collection.json`](postman/DispatchLoadBalancer.postman_collection.json) |
-| **Video walkthrough** | [Loom: 7.5-minute demo on the live server](https://www.loom.com/share/a176871b7c3e417381f57ec08311f50f) |
 | **Architecture diagram** | [`docs/architecture.html`](docs/architecture.html) (interactive) |
 
 ## Contents
@@ -372,4 +371,3 @@ The full list of decisions is in [docs/DESIGN.md](docs/DESIGN.md#assumptions-and
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Running locally, PostgreSQL, Docker, configuration, Render deployment |
 | [docs/TESTING.md](docs/TESTING.md) | JUnit suite, Postman evaluation suite, what each test area proves |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Measurements on the live deployment |
-| [LOOM_SCRIPT.md](LOOM_SCRIPT.md) | Narration and screen plan of the demo video |
