@@ -1,4 +1,4 @@
--- Initial schema. Applied by Flyway on start-up (PostgreSQL in production, locally and in the tests).
+-- Initial schema. Applied by Flyway on start-up, on PostgreSQL (prod profile) and on H2 (local runs and tests).
 -- Hibernate only validates the schema (ddl-auto: validate); every later change is a new versioned migration.
 
 CREATE TABLE vehicles (
