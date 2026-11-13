@@ -12,89 +12,44 @@ How the code is organised, which patterns it uses and why, and the assumptions b
 
 ## Architecture
 
-An interactive version of the request-flow diagram is in [architecture.html](architecture.html)
-(self-contained; download and open in a browser). The component view:
+[![Request flow](architecture.png)](architecture.html)
 
-```mermaid
-flowchart LR
-    Client["Client: Postman / curl / Swagger UI"]
+The diagram above is [architecture.html](architecture.html), a single self-contained file. Download it and
+open it in a browser to explore it:
+- **Themes:** light or dark.
+- **ROUTE and LENS:** trace the paths between components.
+- **SRC links:** open each component's source on GitHub, at the exact lines.
 
-    subgraph Web["Web layer"]
-        DC["DispatchController<br/>/api/dispatch/orders, /vehicles, /plan"]
-        TDC["TestDataController<br/>/api/dispatch/test-data"]
-        RM["RequestMapper<br/>(request DTO to entity)"]
-        GEH["GlobalExceptionHandler<br/>(@RestControllerAdvice)"]
-    end
+### Components
 
-    subgraph Services["Service layer"]
-        OS["OrderService"]
-        VS["VehicleService"]
-        DS["DispatchService"]
-        TDS["TestDataService"]
-        GEN["TestDataGenerator"]
-        CU["ChunkedUpserter<br/>(1 SELECT + 1 saveAll per 1,000 rows)"]
-        PM["DispatchPlanMapper<br/>(result to response DTO)"]
-    end
+In the order of the diagram, from the client inwards:
 
-    subgraph Strategies["Strategy layer"]
-        REG["DispatchStrategyRegistry"]
-        GR["GreedyPriorityDispatchStrategy<br/>(name: greedy, default)"]
-        ORT["OrToolsDispatchStrategy<br/>(name: ortools)"]
-        SOLVER["OR-Tools routing solver<br/>(native, loaded lazily)"]
-    end
+| Component | Responsibility | Source |
+|---|---|---|
+| **API client** | Postman, Swagger UI or curl. The API has no UI. | [Postman collection](../postman/DispatchLoadBalancer.postman_collection.json) |
+| **DispatchController** | The REST endpoints under `/api/dispatch`. Validates request DTOs with Bean Validation, maps them to entities and delegates; it contains no business logic. `ServerTimingAdvice` adds the `Server-Timing` header to every response. | `controller` |
+| **GlobalExceptionHandler** | The single `@RestControllerAdvice`. It turns every failure into the same JSON shape `{status, message, errors, timestamp}`, never with a stack trace. | `exception` |
+| **DispatchService** | Builds a plan on request. It resolves the strategy, reads the data snapshot, runs the algorithm and maps the result to the response. Plans are never stored. | `service.impl.DefaultDispatchService` |
+| **DispatchSnapshotReader** | Reads vehicles and orders in one read-only `REPEATABLE READ` transaction (a snapshot on PostgreSQL), so a plan never mixes data from two moments. | `service.impl.DispatchSnapshotReader` |
+| **StrategyRegistry** | Maps a strategy name to a `DispatchStrategy` bean, so there is no if/else on the strategy. Adding an algorithm means adding one bean. | `strategy.registry` |
+| **Greedy strategy** | The default. Priority first, nearest route end with room, then nearest-neighbour and 2-opt route improvement. | `strategy.greedy` |
+| **OR-Tools CVRP** | Google OR-Tools with lexicographic drop penalties, warm-started from the greedy plan, guarded against dropping more high-priority orders, with greedy as the fallback. | `strategy.ortools` |
+| **Order & Vehicle services** | Upsert by ID through the shared `ChunkedUpserter`: per 1,000 rows, one `SELECT`, then batched `INSERT`/`UPDATE`. Also the read and delete operations. | `service.impl` |
+| **Test data (demo)** | `POST /test-data` replaces all data with a generated dataset, in one transaction. | `controller.TestDataController`, `testdata.TestDataService` |
+| **TestDataGenerator** | Seeded, reproducible orders and vehicles around 30 Indian cities. | `testdata` |
+| **PostgreSQL 16** | Production database (Render, `prod` profile); H2 in memory for local runs and tests. Flyway owns the schema. | `db/migration`, `application-prod.yml`, `render.yaml` |
 
-    subgraph Distance["Distance"]
-        HAV["HaversineDistanceCalculator"]
-        TAB["HaversineTable<br/>(precomputed trig, hot loops)"]
-    end
+### Request flows
 
-    subgraph Persistence["Persistence"]
-        OREPO["DeliveryOrderRepository"]
-        VREPO["VehicleRepository"]
-        DB[("PostgreSQL 16 (production)<br/>H2 in-memory (local runs, tests)")]
-    end
+The arrows in the diagram, one flow per row:
 
-    Client --> DC
-    Client --> TDC
-    DC --> RM
-    DC --> OS
-    DC --> VS
-    DC --> DS
-    TDC --> TDS
-    TDS --> GEN
-    TDS --> OS
-    TDS --> VS
-    OS --> CU
-    VS --> CU
-    OS --> OREPO
-    VS --> VREPO
-    CU --> OREPO
-    CU --> VREPO
-    OREPO --> DB
-    VREPO --> DB
-    DS --> OS
-    DS --> VS
-    DS --> REG
-    DS --> PM
-    REG --> GR
-    REG --> ORT
-    ORT -->|"seed + fallback"| GR
-    ORT --> SOLVER
-    GR --> TAB
-    GR --> HAV
-    ORT --> HAV
-    DC -.->|"exceptions"| GEH
-    TDC -.->|"exceptions"| GEH
-    GEH -.->|"ErrorResponse JSON"| Client
-```
-
-Request flow for `GET /api/dispatch/plan`: the controller passes the `strategy` parameter to
-`DispatchService`, which resolves the strategy in the registry (unknown name: 400), then reads vehicles
-(none: 400) and orders through `DispatchSnapshotReader`. Both reads run in one read-only REPEATABLE READ
-transaction, which is snapshot isolation on PostgreSQL, so a concurrent upload can never be half in a
-plan. The service then runs the algorithm outside any transaction, so no database connection is held
-during a 3-second OR-Tools search, and maps the internal `DispatchResult` to the response DTO. The plan
-is computed on demand and never persisted.
+| Flow | Path through the components |
+|---|---|
+| **Upload orders or vehicles** | API client → DispatchController (validate the whole batch) → Order & Vehicle services (chunked upsert in one transaction) → PostgreSQL |
+| **Compute a plan** | API client → DispatchController → DispatchService → StrategyRegistry (unknown name: 400) → DispatchSnapshotReader (vehicles and orders, one snapshot; no vehicles: 400) → Greedy or OR-Tools, outside any transaction → response, whose `strategy` field says which algorithm ran |
+| **OR-Tools fallback** | OR-Tools → Greedy, when there are more than 1,000 orders, the native library is unavailable, 2 solves are already running, the solver fails, or its result would drop more high-priority orders than greedy |
+| **Generate test data** | API client → Test data (demo) → TestDataGenerator → Order & Vehicle services (replace everything, one transaction) → PostgreSQL |
+| **Any error** | Any component → GlobalExceptionHandler → API client: a 4xx JSON body with the same shape for every error |
 
 ## Package structure
 
