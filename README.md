@@ -6,7 +6,8 @@ capacity-safe, priority-aware dispatch plan.**
 ![Java 21](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white)
 ![OR-Tools](https://img.shields.io/badge/Google%20OR--Tools-9.15-4285F4?logo=google&logoColor=white)
-![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C127%20passing-brightgreen)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C133%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-97.9%25-brightgreen)
 ![Postman](https://img.shields.io/badge/Postman%20on%20live%20server-398%20assertions%20passing-FF6C37?logo=postman&logoColor=white)
 
@@ -27,6 +28,7 @@ capacity-safe, priority-aware dispatch plan.**
 - [How dispatching works](#how-dispatching-works)
 - [Results on the live deployment](#results-on-the-live-deployment)
 - [Tests and coverage](#tests-and-coverage)
+- [Deployment and CI/CD](#deployment-and-cicd)
 - [Tech stack](#tech-stack)
 - [Project structure](#project-structure)
 - [Assumptions](#assumptions)
@@ -73,7 +75,7 @@ has ready-made examples ("Assignment example" and "Sample dataset (Delhi NCR)") 
 ### 3. Build and test the code
 
 ```bash
-./mvnw verify      # 1,127 tests, JaCoCo report in target/site/jacoco/index.html (Windows: .\mvnw.cmd verify)
+./mvnw verify      # JUnit suite + JaCoCo report in target/site/jacoco/index.html (Windows: .\mvnw.cmd verify)
 ```
 
 ### Where each evaluation criterion is addressed
@@ -83,8 +85,8 @@ has ready-made examples ("Assignment example" and "Sample dataset (Delhi NCR)") 
 | Java, REST, testable by Postman, no UI | Java 21 / Spring Boot REST API; Postman suite included | Postman, all folders |
 | Design patterns and refactoring | Strategy and registry, DTO and mapper, template method, adapter, fallback, bulkhead | [docs/DESIGN.md](docs/DESIGN.md#design-patterns) |
 | API documentation and how to run | Swagger UI on the live server, this README, [docs/API.md](docs/API.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Live URL |
-| TDD, JUnit and test coverage | 1,127 JUnit tests, 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
-| Efficient database operations | Chunked upsert: one `SELECT` per 1,000 rows, then batched `INSERT`/`UPDATE`; proven by tests that count SQL statements | Postman folders 3 and 6 |
+| TDD, JUnit and test coverage | 1,133 JUnit tests plus PostgreSQL integration tests, 97.9% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
+| Efficient database operations | PostgreSQL 16 in production with Flyway migrations; chunked upsert: one `SELECT` per 1,000 rows, then batched `INSERT`/`UPDATE`; proven by tests that count SQL statements | Postman folders 3 and 6, `/actuator/info` |
 | Code quality and structure | Layered packages, thin controllers, entities never leave the service layer | [Project structure](#project-structure) |
 | Error handling | Strict validation, one error shape, no stack traces, unassignable orders reported with a reason | Postman folders 4 and 5 |
 | Performance on large datasets | 20,000 orders uploaded in one request and planned on the live server (50,000 in a one-off run) | Postman folder 6, [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
@@ -120,8 +122,10 @@ curl "localhost:8080/api/dispatch/plan"                     # greedy (default)
 curl "localhost:8080/api/dispatch/plan?strategy=ortools"    # OR-Tools
 ```
 
-Docker: `docker build -t dispatch-load-balancer . && docker run -p 8080:8080 dispatch-load-balancer`.
-PostgreSQL, configuration and deployment are covered in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Locally the service uses an in-memory H2 database, so it needs no setup. Production uses PostgreSQL
+(`prod` profile). The same Flyway migrations create the schema on both. Docker:
+`docker build -t dispatch-load-balancer . && docker run -p 8080:8080 dispatch-load-balancer`. PostgreSQL,
+configuration and deployment are covered in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Architecture
 
@@ -209,7 +213,8 @@ The full description, including the penalty formulas and the complexity analysis
 
 ## Results on the live deployment
 
-All figures come from the Postman run against https://dispatch-load-balancer-yl5j.onrender.com.
+All figures come from the Postman runs against https://dispatch-load-balancer-yl5j.onrender.com,
+which runs on PostgreSQL 16. `GET /actuator/info` shows the database and the deployed commit.
 
 **Sample dataset from the brief.** It has 30 orders and 5 vehicles, and is an intentional
 over-capacity case: 645 kg of orders against 500 kg of capacity.
@@ -222,34 +227,57 @@ over-capacity case: 645 kg of orders against 500 kg of capacity.
 | Total distance | **73.42 km** | **48.27 km** |
 | Capacity respected | Yes, every vehicle | Yes, every vehicle |
 
-**Large datasets.** These ran on Render's free instance, which has a 0.1 share of one CPU and 512 MB
-RAM. Server times are from the `Server-Timing` header, measured on a warm instance during a repeat run.
+**Large datasets.** These ran on Render's free instances, with a 0.1 share of one CPU and 512 MB RAM,
+writing to PostgreSQL. Server times are from the `Server-Timing` header, measured on a warm instance
+during a repeat run.
 
-| Orders x Vehicles | Upload orders (server) | Greedy plan (server) | Greedy plan (end-to-end, incl. download) |
+| Orders x Vehicles | Upload orders to PostgreSQL (server) | Greedy plan (server) | Greedy plan (end-to-end, incl. download) |
 |---|---:|---:|---:|
-| 1,000 x 50 | 1.4 s | 0.2 s | 0.6 s |
-| 10,000 x 200 | 4.3 s | 0.7 s | 2.1 s |
-| 20,000 x 400 | 6.9 s (2.7 MB body, one request) | 1.6 s | 3.0 s (3.6 MB response) |
+| 1,000 x 50 | 0.6 s | 0.2 s | 0.4 s |
+| 10,000 x 200 | 5.8 s | 0.7 s | 2.3 s |
+| 20,000 x 400 | 8.1 s (2.7 MB body, one request) | 1.2 s | 2.6 s (3.6 MB response) |
 
-OR-Tools plans 1,000 x 50 in 4.6 s (a 3 s search plus model building). A one-off run also handled
-50,000 orders x 500 vehicles on the same instance. First-run figures, after a restart, and the method
+OR-Tools plans 1,000 x 50 in 4.4 s (a 3 s search plus model building). Stored data survives restarts:
+the sample dataset gave the same plan after the service was restarted. First-run figures and the method
 are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Tests and coverage
 
 | JUnit tests | Line coverage | Branch coverage | Build gate |
 |---|---|---|---|
-| **1,127** passing | **97.89%** | **87.87%** | `./mvnw verify` fails below 85% line coverage |
+| **1,133** passing | **97.91%** | **87.87%** | `./mvnw verify` fails below 85% line coverage |
+
+The build also contains 5 integration tests that start the app with the real `prod` profile against
+PostgreSQL 16 (Testcontainers). They need Docker, so they run in CI and are skipped on machines without
+it.
 
 The suite is built test-first with JUnit 5, Mockito, MockMvc and AssertJ. It covers:
 - every validation rule and exact error message;
 - the HIGH-priority invariant on randomized data;
 - the exact sample routes (73.42 km);
 - every OR-Tools fallback and the concurrency bulkhead;
-- JDBC batching, proven by counting the real SQL statements.
+- JDBC batching, proven by counting the real SQL statements;
+- the production profile's configuration, bound exactly as at start-up.
 
 The Postman collection adds 398 assertions over HTTP against the live server. See
 [docs/TESTING.md](docs/TESTING.md).
+
+## Deployment and CI/CD
+
+- **Infrastructure as code.** [`render.yaml`](render.yaml) declares the PostgreSQL 16 database and the
+  Docker web service in the same region. Render injects the database host and credentials into the
+  service, so no secret is stored in the repository.
+- **Schema.** [Flyway](src/main/resources/db/migration) migrations with primary keys and `CHECK`
+  constraints create the schema. Hibernate only validates it (`ddl-auto: validate`).
+- **Pipeline.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs in three stages:
+  1. On every push and pull request: build, run all tests (H2 and PostgreSQL) and enforce the coverage
+     gate.
+  2. On `main`: deploy to Render through its deploy hook, then wait until `/actuator/info` reports the
+     new commit.
+  3. Run the Postman suite against the live server with newman.
+- **Pipeline status.** GitHub has placed a billing lock on the owner's account, so it currently does not
+  start workflow runs; this is awaiting GitHub Support. Until then the same checks are run by hand:
+  `./mvnw verify`, then a manual deploy, then the Postman suite against the live server.
 
 ## Tech stack
 
@@ -257,7 +285,7 @@ The Postman collection adds 398 assertions over HTTP against the live server. Se
 |---|---|
 | Language and framework | Java 21, Spring Boot 3.5.16 (Web, Data JPA, Validation, Actuator) |
 | Optimization | Google OR-Tools 9.15 (routing solver, native libraries loaded lazily) |
-| Persistence | Hibernate 6.6, H2 in-memory by default, PostgreSQL via the `prod` profile |
+| Persistence | PostgreSQL 16 in production (Render), Flyway migrations, Hibernate 6.6, HikariCP; in-memory H2 for local runs |
 | API documentation | springdoc-openapi 2.10 (Swagger UI) |
 | Testing | JUnit 5, Mockito, MockMvc, AssertJ, JaCoCo 0.8.16, Postman |
 | Build and delivery | Maven Wrapper, multi-stage Docker image (`eclipse-temurin:21-jre-jammy`), Render Blueprint |
@@ -269,15 +297,16 @@ dispatch-load-balancer/
 ├── src/
 │   ├── main/
 │   │   ├── java/com/freightfox/dispatch/   Application source (packages below)
-│   │   └── resources/                      application.yml, application-prod.yml (PostgreSQL)
+│   │   └── resources/                      application.yml, application-prod.yml, db/migration (Flyway)
 │   └── test/
 │       ├── java/com/freightfox/dispatch/   Unit, integration, end-to-end and benchmark tests
 │       └── resources/                      Sample datasets and CVRPLIB benchmark instances
+├── .github/workflows/ci.yml                CI/CD: build and test, deploy to Render, verify live with newman
 ├── docs/                                   API, algorithms, design, operations, testing, performance
 ├── postman/                                Evaluation suite: 74 requests, 398 assertions
 ├── samples/                                Ready-to-use request bodies (Delhi NCR dataset)
 ├── Dockerfile                              Multi-stage, non-root image (JRE 21)
-├── render.yaml                             Render Blueprint (Docker runtime, health check)
+├── render.yaml                             Render Blueprint: PostgreSQL database + Docker web service
 └── pom.xml                                 Maven build with JaCoCo 85% coverage gate
 ```
 
@@ -322,9 +351,9 @@ The full list of decisions is in [docs/DESIGN.md](docs/DESIGN.md#assumptions-and
   service uses greedy and reports `"strategy": "greedy"`.
 - **Greedy is a heuristic.** It guarantees capacity and priority order, but not minimum distance or
   maximum orders served.
-- **Free-tier hosting.** The live instance sleeps when idle; its first request can take up to about 2
-  minutes. It has a small CPU share, and data is held in memory, so it resets on restart. The `prod`
-  profile with PostgreSQL removes the data reset.
+- **Free-tier hosting.** The live web service sleeps when idle; its first request can take up to about
+  2 minutes, and it has a small CPU share. Render's free PostgreSQL plan expires on 13 December 2026,
+  after the evaluation window; a paid plan removes both limits.
 - **Request size is not capped in the application.** For public exposure, put a body-size limit in a
   reverse proxy.
 

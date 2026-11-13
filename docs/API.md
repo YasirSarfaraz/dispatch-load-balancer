@@ -26,6 +26,7 @@ server's processing time.
 | `DELETE /api/dispatch/vehicles` | - | `{"message": "All vehicles deleted.", "status": "success"}` | - |
 | `POST /api/dispatch/test-data` | Query `orders` (default 5000, 1 to 50000), `vehicles` (default 100, 1 to 2000), `seed` (default 42). Demo only; **replaces** all orders and vehicles. | `{"message": "Test data generated. All existing orders and vehicles were replaced.", "status": "success", "ordersGenerated": 5000, "vehiclesGenerated": 100, "seed": 42, "elapsedMs": ...}` | 400 out of range or not a number; 404 when `app.test-data.enabled=false` |
 | `GET /actuator/health` | - | `{"status": "UP"}` | - |
+| `GET /actuator/info` | - | Version, deployed commit and database, e.g. `{"app": {"version": "1.0.0", "commit": "..."}, "database": {"product": "PostgreSQL", "version": "16.15"}}` | - |
 | `GET /v3/api-docs` | - | OpenAPI 3 JSON | - |
 | `GET /swagger-ui.html` (or `GET /`) | - | Swagger UI | - |
 

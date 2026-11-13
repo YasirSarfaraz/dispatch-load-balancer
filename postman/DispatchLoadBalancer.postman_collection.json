@@ -2670,7 +2670,7 @@
           "response": []
         },
         {
-          "name": "10,000 x 200: POST the same 10,000 orders again (all updates)",
+          "name": "10,000 x 200: POST the same 10,000 orders again (existing IDs)",
           "event": [
             {
               "listen": "test",
@@ -2680,8 +2680,8 @@
                   "pm.test(\"status 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"message: Delivery orders accepted.\", () => pm.expect(pm.response.json()).to.eql({ message: \"Delivery orders accepted.\", status: \"success\" }));",
                   "const serverMs = parseFloat((pm.response.headers.get('Server-Timing') || '').split('dur=')[1]);",
-                  "console.log('[perf] upsert 10,000 orders (updates): server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
-                  "pm.test('[performance] upsert 10,000 orders (updates): end-to-end under 90 s', () => pm.expect(pm.response.responseTime).to.be.below(90000));"
+                  "console.log('[perf] upsert 10,000 orders (existing IDs): server ' + serverMs + ' ms, end-to-end ' + pm.response.responseTime + ' ms, response ' + pm.response.responseSize + ' bytes');",
+                  "pm.test('[performance] upsert 10,000 orders (existing IDs): end-to-end under 90 s', () => pm.expect(pm.response.responseTime).to.be.below(90000));"
                 ]
               }
             }

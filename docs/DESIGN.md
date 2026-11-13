@@ -51,7 +51,7 @@ flowchart LR
     subgraph Persistence["Persistence"]
         OREPO["DeliveryOrderRepository"]
         VREPO["VehicleRepository"]
-        DB[("H2 in-memory (default)<br/>or PostgreSQL (prod profile)")]
+        DB[("PostgreSQL 16 (production)<br/>H2 in-memory (local runs, tests)")]
     end
 
     Client --> DC
@@ -191,7 +191,10 @@ service layer.
   `ORD000001...` and `VEH0001...`, which never collide with the sample IDs. Same seed, same data.
 
 **Operations**
-- H2 in-memory is the default: data is lost on restart or redeploy. The `prod` profile uses PostgreSQL.
+- Production runs on PostgreSQL 16 (`prod` profile, Render managed database). Local runs and the test
+  suite use in-memory H2, so the project runs with nothing but a JDK.
+- Flyway owns the schema (versioned migrations, primary keys, CHECK constraints) on both databases;
+  Hibernate only validates it, so entity/schema drift stops the application at start-up.
 - The OpenAPI server URL is relative (`/`), so Swagger "Try it out" works locally, in Docker and on
   Render; `forward-headers-strategy: framework` keeps redirects on HTTPS behind Render's proxy.
 - Actuator exposes `health` only, without details.
