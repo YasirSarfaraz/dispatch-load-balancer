@@ -4,7 +4,7 @@
 
 The narration and screen plan for the walkthrough video, about 6.5 minutes long and recorded against the
 live Render deployment. Figures quoted in the narration are the values the live service returned
-during recording. The JUnit suite has since grown from 1,122 to 1,149 tests.
+during recording. The JUnit suite has since grown from 1,122 to 1,148 tests.
 
 ## At a glance
 

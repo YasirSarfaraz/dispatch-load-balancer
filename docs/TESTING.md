@@ -10,7 +10,7 @@ The project is tested on two levels:
 
 | Suite | Scope | Result |
 |---|---|---|
-| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests, every Spring test on a real PostgreSQL 16 (Testcontainers) | **1,149** tests, 0 failures, 0 skipped |
+| JUnit (`./mvnw verify`) | Unit, integration and end-to-end tests, every Spring test on a real PostgreSQL 16 (Testcontainers) | **1,148** tests, 0 failures, 0 skipped |
 | JaCoCo | Coverage of the JUnit suite (build fails below 85% lines) | **98.00%** lines (1,275 of 1,301), **87.80%** branches (403 of 459) |
 | Postman | 74 requests against the live server | **398** assertions, all passing |
 

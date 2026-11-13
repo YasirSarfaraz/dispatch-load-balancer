@@ -7,7 +7,7 @@ capacity-safe, priority-aware dispatch plan.**
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white)
 ![OR-Tools](https://img.shields.io/badge/Google%20OR--Tools-9.15-4285F4?logo=google&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C149%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/JUnit%20tests-1%2C148%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-98.0%25-brightgreen)
 ![Postman](https://img.shields.io/badge/Postman%20on%20live%20server-398%20assertions%20passing-FF6C37?logo=postman&logoColor=white)
 
@@ -87,7 +87,7 @@ stored data) and **Test data (demo)**. Every endpoint has ready-made examples ("
 | Java, REST, testable by Postman, no UI | Java 21 / Spring Boot REST API; Postman suite included | Postman, all folders |
 | Design patterns and refactoring | Strategy and registry, DTO and mapper, template method, adapter, fallback, bulkhead | [docs/DESIGN.md](docs/DESIGN.md#design-patterns) |
 | API documentation and how to run | Swagger UI on the live server, this README, [docs/API.md](docs/API.md), [docs/OPERATIONS.md](docs/OPERATIONS.md) | Live URL |
-| TDD, JUnit and test coverage | 1,149 JUnit tests, all against a real PostgreSQL 16; 98.0% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
+| TDD, JUnit and test coverage | 1,148 JUnit tests, all against a real PostgreSQL 16; 98.0% line coverage, 85% gate enforced by the build | `./mvnw verify`, [docs/TESTING.md](docs/TESTING.md) |
 | Efficient database operations | PostgreSQL 16 in production with Flyway migrations; chunked upsert: one `SELECT` per 1,000 rows, then batched `INSERT`/`UPDATE`; proven by tests that count SQL statements | Postman folders 3 and 6, `/actuator/info` |
 | Code quality and structure | Layered packages, thin controllers, entities never leave the service layer | [Project structure](#project-structure) |
 | Error handling | Strict validation, one error shape, no stack traces, unassignable orders reported with a reason | Postman folders 4 and 5 |
@@ -247,7 +247,7 @@ are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 | JUnit tests | Line coverage | Branch coverage | Build gate |
 |---|---|---|---|
-| **1,149** passing | **98.00%** | **87.80%** | `./mvnw verify` fails below 85% line coverage |
+| **1,148** passing | **98.00%** | **87.80%** | `./mvnw verify` fails below 85% line coverage |
 
 Every Spring test runs against a real PostgreSQL 16, which Testcontainers creates for the run and removes
 afterwards, so the tests exercise the production database engine. Docker must be running.
@@ -273,7 +273,7 @@ The Postman collection adds 398 assertions over HTTP against the live server. Se
 - **Schema.** [Flyway](src/main/resources/db/migration) migrations with primary keys and `CHECK`
   constraints create the schema. Hibernate only validates it (`ddl-auto: validate`).
 - **Release process.**
-  1. `./mvnw verify` runs all 1,149 tests against PostgreSQL 16.
+  1. `./mvnw verify` runs all 1,148 tests against PostgreSQL 16.
   2. Deploy the commit from the Render dashboard (**Manual Deploy > Deploy latest commit**). A version
      only goes live after it passes the `/actuator/health` check, so a broken build never replaces a
      working one.
