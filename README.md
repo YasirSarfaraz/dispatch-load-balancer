@@ -10,7 +10,7 @@ capacity-safe, priority-aware dispatch plan.**
 ![Coverage](https://img.shields.io/badge/line%20coverage-97.9%25-brightgreen)
 ![Deployed on Render](https://img.shields.io/badge/deployed-Render-46E3B7?logo=render&logoColor=white)
 
-| | |
+| Resource | Link |
 |---|---|
 | **Live API** | https://dispatch-load-balancer-yl5j.onrender.com |
 | **Swagger UI** | https://dispatch-load-balancer-yl5j.onrender.com/swagger-ui.html |
