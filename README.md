@@ -15,6 +15,7 @@ capacity-safe, priority-aware dispatch plan.**
 |---|---|
 | **Live API** | https://dispatch-load-balancer-yl5j.onrender.com (opens Swagger UI) |
 | **Postman collection** | [`postman/DispatchLoadBalancer.postman_collection.json`](postman/DispatchLoadBalancer.postman_collection.json) |
+| **Video walkthrough** | [Loom: approach, live API demo in Swagger, design decisions](https://www.loom.com/share/86028ada1be14869888942c3452ec4fc) |
 | **Architecture diagram** | [`docs/architecture.html`](docs/architecture.html) (interactive) |
 
 ## Contents
