@@ -232,24 +232,40 @@ at 200 x 20 and **9.2% less** at 1,000 x 50. On CVRPLIB set X instances, OR-Tool
 
 ## Project structure
 
+```text
+dispatch-load-balancer/
+├── src/
+│   ├── main/
+│   │   ├── java/com/freightfox/dispatch/   Application source (packages below)
+│   │   └── resources/                      application.yml, application-prod.yml (PostgreSQL)
+│   └── test/
+│       ├── java/com/freightfox/dispatch/   Unit, integration, end-to-end and performance tests
+│       └── resources/                      Sample datasets and CVRPLIB benchmark instances
+├── docs/                                   API, algorithms, design, operations, testing, performance
+├── postman/                                Postman collection with 119 assertions
+├── samples/                                Ready-to-use request bodies (Delhi NCR dataset)
+├── Dockerfile                              Multi-stage, non-root image (JRE 21)
+├── render.yaml                             Render Blueprint (Docker runtime, health check)
+└── pom.xml                                 Maven build with JaCoCo 85% coverage gate
 ```
-src/main/java/com/freightfox/dispatch
-  controller/    REST controllers, API constants, Swagger examples
-  service/       Order, vehicle and dispatch services; ChunkedUpserter
-  strategy/      DispatchStrategy contract
-    greedy/      Priority-first greedy + nearest-neighbour/2-opt route improvement
-    ortools/     CVRP model builder, drop penalties, solver adapter, lazy native loader
-    registry/    Strategy lookup by name
-  distance/      Haversine calculator and precomputed trigonometry table
-  dto/, mapper/  Request/response records and mappers (entities never leak into the API)
-  entity/, repository/   JPA entities and Spring Data repositories
-  exception/     GlobalExceptionHandler and error translation
-  testdata/      Seeded generator for 30 Indian cities
-samples/         Ready-to-use request bodies (Delhi NCR dataset)
-postman/         Postman collection with assertions
-docs/            API, algorithms, design, operations, testing, performance, architecture diagram
-Dockerfile, render.yaml
-```
+
+Source packages under `com.freightfox.dispatch`, by layer:
+
+| Layer | Package | Responsibility |
+|---|---|---|
+| **API** | `controller` | REST endpoints, API constants and Swagger examples |
+| | `dto.request` / `dto.response` | Validated request records and response records |
+| | `exception` | Global exception handler: one error format for every failure |
+| **Application** | `service`, `service.impl` | Order, vehicle and dispatch services; shared chunked upserter |
+| | `mapper` | Request-to-entity and result-to-response mapping |
+| **Algorithms** | `strategy` | `DispatchStrategy` contract and the plan result model |
+| | `strategy.registry` | Strategy lookup by name, with no if/else on the strategy |
+| | `strategy.greedy` | Priority-first assignment, nearest-neighbour and 2-opt route improvement |
+| | `strategy.ortools` | CVRP model builder, drop penalties, solver adapter, lazy native loader |
+| | `distance` | Haversine calculator and precomputed trigonometry table |
+| **Persistence** | `entity`, `repository` | JPA entities and Spring Data repositories |
+| **Support** | `config` | Typed configuration properties and OpenAPI metadata |
+| | `testdata` | Seeded test-data generator around 30 Indian cities |
 
 ## Assumptions
 
