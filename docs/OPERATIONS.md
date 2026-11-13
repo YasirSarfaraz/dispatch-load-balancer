@@ -2,6 +2,9 @@
 
 [Back to README](../README.md)
 
+How to run the service locally, with PostgreSQL or in Docker, how to configure it, and how it is
+deployed on Render.
+
 - [Run locally](#run-locally)
 - [PostgreSQL](#postgresql-prod-profile)
 - [Docker](#docker)

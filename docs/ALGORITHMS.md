@@ -2,6 +2,9 @@
 
 [Back to README](../README.md)
 
+How distances are measured and how each dispatch strategy builds a plan, with the sample dataset as a
+worked example.
+
 - [Haversine distance](#haversine-distance)
 - [Greedy strategy (default)](#greedy-strategy-default)
 - [OR-Tools CVRP strategy](#or-tools-cvrp-strategy)
@@ -75,13 +78,11 @@ Vehicle Routing Problem for the Google OR-Tools routing solver.
   `app.dispatch.ortools.time-limit` (default 3 s). `PATH_CHEAPEST_ARC` is used when no seed is available
   (empty greedy plan, or a seed OR-Tools rejects). An OR-Tools plan therefore takes about 3 s (plus
   about 0.9 s to load the native library on the first call).
-- **Why the warm start**: with a cold `PATH_CHEAPEST_ARC` start, the performance suite showed that on
-  capacity-scarce data (1,000 orders x 50 vehicles, 26,250 weight vs 15,124 capacity) a 3 s search left
-  110 HIGH orders unassigned while serving MEDIUM/LOW ones; Guided Local Search was still repairing it
-  at 30 s. Starting from greedy (which places HIGH first by construction) and minimizing the
-  lexicographic objective below means OR-Tools can never drop more HIGH (then MEDIUM, then LOW) orders
-  than greedy. The trade-off: on the CVRPLIB benchmark the greedy seed gives a worse starting shape on
-  two of three instances (see [PERFORMANCE.md](PERFORMANCE.md)).
+- **Why the warm start**: started cold, a 3 s search on capacity-scarce data (1,000 orders x 50
+  vehicles) left HIGH orders unassigned while serving MEDIUM and LOW ones. Starting from greedy, which
+  places HIGH first by construction, means OR-Tools can never drop more HIGH (then MEDIUM, then LOW)
+  orders than greedy. The cost is a less distance-optimal starting point on pure-distance benchmarks
+  (see [PERFORMANCE.md](PERFORMANCE.md#cvrplib-benchmark)).
 - **Priority guard**: after solving, the unassigned counts per priority are compared with greedy's
   (HIGH, then MEDIUM, then LOW). If OR-Tools is worse, a WARN is logged and the greedy plan is returned
   (`"strategy": "greedy"`).

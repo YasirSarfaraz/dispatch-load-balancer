@@ -2,6 +2,8 @@
 
 [Back to README](../README.md)
 
+How the code is organised, which patterns it uses and why, and the assumptions behind its behaviour.
+
 - [Architecture](#architecture)
 - [Package structure](#package-structure)
 - [Design patterns](#design-patterns)

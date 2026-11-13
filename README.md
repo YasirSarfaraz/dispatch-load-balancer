@@ -56,7 +56,7 @@ Two interchangeable algorithms are available per request: a fast, deterministic 
 - **Two strategies behind one contract.** A registry built from strategy beans picks the algorithm by
   name, with no if/else. OR-Tools is warm-started from the greedy plan, guarded so it can never drop
   more high-priority orders than greedy, and falls back to greedy instead of failing.
-- **Fast at scale.** Greedy plans **50,000 orders x 500 vehicles in 75 ms** with an allocation-free
+- **Fast at scale.** Greedy plans **50,000 orders x 500 vehicles in 70 ms** with an allocation-free
   O(n x m) inner loop. A 50,000-order request body is accepted and stored in one call.
 - **Efficient writes.** Chunked upsert with one `SELECT` per 1,000 rows and JDBC-batched
   inserts/updates, proven by tests that count the real SQL statements.
@@ -210,10 +210,10 @@ Benchmarks (`./mvnw verify -Pperformance`, generated into [docs/PERFORMANCE.md](
 
 | Strategy | Orders x Vehicles | Upsert | Plan | Peak heap |
 |---|---|---:|---:|---:|
-| greedy | 10,000 x 200 | 274 ms | 12 ms | 146 MB |
-| greedy | 50,000 x 500 | 863 ms | **75 ms** | 344 MB |
-| ortools | 200 x 20 | 8 ms | 3,012 ms | 50 MB |
-| ortools | 1,000 x 50 | 13 ms | 3,089 ms | 65 MB |
+| greedy | 10,000 x 200 | 271 ms | 19 ms | 146 MB |
+| greedy | 50,000 x 500 | 1,005 ms | **70 ms** | 343 MB |
+| ortools | 200 x 20 | 9 ms | 3,016 ms | 50 MB |
+| ortools | 1,000 x 50 | 13 ms | 3,084 ms | 65 MB |
 
 On the same data, OR-Tools serves the same orders per priority as greedy with **60.4% less distance**
 at 200 x 20 and **9.2% less** at 1,000 x 50. On CVRPLIB set X instances, OR-Tools (3 s) is within
@@ -305,3 +305,4 @@ The full list of decisions is in [docs/DESIGN.md](docs/DESIGN.md#assumptions-and
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Running locally, PostgreSQL, Docker, configuration, Render deployment |
 | [docs/TESTING.md](docs/TESTING.md) | Test commands, coverage, what each test area proves |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Full benchmark results and CVRPLIB comparison |
+| [LOOM_SCRIPT.md](LOOM_SCRIPT.md) | Narration and screen plan of the demo video |

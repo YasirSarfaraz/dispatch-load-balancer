@@ -2,6 +2,8 @@
 
 [Back to README](../README.md)
 
+How to run the tests and benchmarks, and what the suite proves.
+
 ```bash
 ./mvnw test                    # unit + integration tests (Windows: .\mvnw.cmd test)
 ./mvnw verify                  # tests + JaCoCo report + 85% line-coverage gate (the build fails below 85%)

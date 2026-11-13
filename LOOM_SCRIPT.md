@@ -1,155 +1,132 @@
-# Loom demo script (about 5 minutes)
+# Demo video script
 
-Dispatch Load Balancer: a Spring Boot service for the Capacitated Vehicle Routing Problem.
+[Back to README](README.md)
+
+The narration and screen plan for the walkthrough video, about 6.5 minutes long and recorded against the
+live Render deployment. Figures quoted in the narration are the values the live service returned
+during recording.
+
+## At a glance
+
+| # | Time | Topic | Screen |
+|---|---|---|---|
+| 1 | 0:00 | Overview | README on GitHub |
+| 2 | 0:42 | Request flow | `docs/architecture.html` |
+| 3 | 1:29 | Greedy algorithm | `GreedyPriorityDispatchStrategy` and `CapacityAssigner` on GitHub |
+| 4 | 2:17 | Live demo: upload and plan | Swagger UI on Render |
+| 5 | 3:03 | Over-capacity edge case | Greedy plan response |
+| 6 | 3:42 | Greedy vs OR-Tools | OR-Tools plan response |
+| 7 | 4:46 | 5,000-order test data | Test-data endpoint, raw plan JSON |
+| 8 | 5:40 | Tests and coverage | `mvnw clean verify` output, JaCoCo report |
+| 9 | 6:18 | Close | "Deploy to Render" section |
 
 ## Before recording
 
-- Start the app (locally with `./mvnw spring-boot:run` / `.\mvnw.cmd spring-boot:run`, or use the
-  Render URL). On Render, call `/actuator/health` a minute before recording so a sleeping free
-  instance has woken up.
-- Warm up OR-Tools once (the first call loads the native library, about 0.9 s extra): load the sample
-  data, call `GET /api/dispatch/plan?strategy=ortools`, then reset with `DELETE /api/dispatch/orders`
-  and `DELETE /api/dispatch/vehicles`.
-- Open these tabs: Swagger UI (`<base-url>/swagger-ui.html`), the README rendered on GitHub (for the
-  Mermaid diagram), the IDE on `GreedyPriorityDispatchStrategy.java`, a terminal with a finished
-  `./mvnw verify` run (do not run it live; it takes too long), and `target/site/jacoco/index.html`.
-- Open the browser DevTools Network tab next to Swagger UI (for the response-time segment).
-- Keep the order: sample data first, test data last (test data REPLACES all orders and vehicles).
+- Call `/actuator/health` a minute ahead so a sleeping free instance has woken up.
+- Call `GET /api/dispatch/plan?strategy=ortools` once, so the OR-Tools native library is already loaded.
+- Reset the data with `DELETE /api/dispatch/orders` and `DELETE /api/dispatch/vehicles`, and keep this
+  order: sample data first, test data last (test data replaces everything).
+- Afterwards, reload the sample data so reviewers find a ready-to-plan dataset.
 
-## 0:00 - 0:30 Intro
+## Script
 
-**Screen:** README top section (title, badges, links table).
+### 1. Overview (0:00)
 
-**Do:** Scroll slowly over the overview.
+**Screen:** README title and introduction; highlight "Capacitated Vehicle Routing Problem" and the live URL.
 
-**Say:** "Hi, this is my Dispatch Load Balancer for FreightFox. It is a Spring Boot 3.5 service on Java 21
-that assigns delivery orders to a vehicle fleet. It is a Capacitated Vehicle Routing Problem: no
-vehicle may exceed its capacity, HIGH priority goes first, then MEDIUM, then LOW, and total distance is
-minimized using the Haversine formula. It is a pure REST API with Swagger docs, a Postman collection,
-and it is deployed on Render."
+> Hi, this is my Dispatch Load Balancer for FreightFox. It's a Spring Boot 3.5 service on Java 21 that
+> assigns delivery orders to a fleet of vehicles. This is a capacitated vehicle routing problem. No
+> vehicle may carry more than its capacity. High-priority orders go first, then medium, then low. And
+> the total distance, measured with the Haversine formula, should be as small as possible. It's a pure
+> REST API, with Swagger docs and a Postman collection, and it's deployed live on Render.
 
-## 0:30 - 1:00 Architecture
+### 2. Request flow (0:42)
 
-**Screen:** README "Architecture" diagram, then the package tree in `docs/DESIGN.md`.
+**Screen:** the architecture diagram; mark the controller, services, strategy registry, the
+"seed + fallback" link and the exception handler as they are mentioned.
 
-**Do:** Point at controller, services, registry, the two strategies, repositories, exception handler.
+> Here is the request flow. Controllers are thin: they validate the request and call a service. Uploads
+> go through one shared chunked upserter. For every 1,000 rows, it runs one select, then batched inserts
+> and updates. For a plan, the dispatch service picks a strategy from a registry of strategy beans, so
+> there's no if-else on the strategy name. There are two strategies: greedy, and OR-Tools. OR-Tools
+> starts from the greedy plan, and falls back to greedy when it can't, or shouldn't, run. Every error
+> goes through one exception handler, so all errors share the same JSON shape.
 
-**Say:** "Controllers are thin: they validate and map DTOs, then call services. The upsert goes through
-one shared ChunkedUpserter: per 1,000 rows one SELECT, then JDBC-batched inserts and updates. For the
-plan, the DispatchService resolves a strategy from a registry built from every DispatchStrategy bean,
-so there is no if/else on the strategy name. There are two strategies, greedy and OR-Tools, and
-OR-Tools falls back to greedy if it can't or shouldn't run. One RestControllerAdvice gives every error
-the same JSON shape, and entities never leak into the API."
+### 3. Greedy algorithm (1:29)
 
-## 1:00 - 1:40 Greedy algorithm
+**Screen:** the class Javadoc of `GreedyPriorityDispatchStrategy`, then the inner loop of
+`CapacityAssigner.assign`.
 
-**Screen:** IDE, `GreedyPriorityDispatchStrategy.java` class Javadoc, then `CapacityAssigner.assign`.
+> The default greedy algorithm sorts the orders by priority, then heavier first, then by order ID, so
+> the result is deterministic. Each order goes to the vehicle that still has room, and whose route
+> currently ends nearest to it. Ties go to the smaller vehicle ID. Because every high order is placed
+> before any medium or low order, a lower priority can never take capacity from a high one. The
+> assignment loop uses plain arrays and precomputed trigonometry, so it doesn't allocate. Then each route
+> is improved with nearest neighbour and two-opt, within a fixed time budget. Routes are open, with no
+> return trip.
 
-**Do:** Highlight the numbered steps in the Javadoc, then the inner loop over vehicles.
+### 4. Live demo: upload and plan (2:17)
 
-**Say:** "The default greedy algorithm sorts orders by priority, then heavier first, then orderId, so it
-is deterministic. Each order goes to the vehicle with enough remaining capacity whose current route end
-is nearest; ties go to the smaller vehicleId. Because all HIGH orders are placed before any MEDIUM or
-LOW, a lower priority can never take capacity from a HIGH order. That invariant is tested on
-randomized data. Assignment is O(n times m) on primitive arrays with precomputed trigonometry, so the
-inner loop doesn't allocate. Then each route is improved with nearest-neighbour and 2-opt, capped at
-1,000 passes and 25 milliseconds per vehicle. Routes are open: no return trip."
+**Screen:** Swagger UI. `POST /orders` and `POST /vehicles` with the "Sample dataset (Delhi NCR)"
+example, then `GET /plan` with `strategy=greedy`.
 
-## 1:40 - 2:40 Live Swagger demo with the sample data
+> Now, the live service on Render, through Swagger. First, I upload the 30 sample orders around
+> Connaught Place, Karol Bagh, Noida and Gurgaon. The response: delivery orders accepted. Then the 5
+> sample vehicles. Both calls are upserts. Posting an existing ID updates it, and the whole batch is
+> validated before anything is stored. Now I ask for the plan with the greedy strategy. Every vehicle is
+> listed with its total load, its distance in kilometres, and its orders in visiting order. Vehicle 1 is
+> loaded to exactly 100 out of 100.
 
-**Screen:** Swagger UI, tag "Dispatch".
+### 5. Over-capacity edge case (3:03)
 
-**Do:**
-1. Expand **POST /api/dispatch/orders** ("Upload delivery orders (upsert)"), click **Try it out**,
-   choose the example **"Sample dataset (Delhi NCR)"** in the Examples dropdown, click **Execute**.
-   Show the response: `{"message": "Delivery orders accepted.", "status": "success"}`.
-2. Expand **POST /api/dispatch/vehicles** ("Upload vehicles (upsert)"), **Try it out**, example
-   **"Sample dataset (Delhi NCR)"**, **Execute**. Response: `{"message": "Vehicle details accepted.",
-   "status": "success"}`.
-3. Expand **GET /api/dispatch/plan** ("Compute the dispatch plan"), **Try it out**, leave `strategy`
-   at `greedy`, **Execute**. Scroll through `dispatchPlan`.
+**Screen:** the `unassignedOrders` part of the greedy response.
 
-**Say:** "These are the 30 sample orders across Connaught Place, Karol Bagh, Noida and Gurgaon, and 5
-vehicles. Both POSTs are upserts: posting an existing ID updates it, and a whole batch is validated
-before anything is stored. Now the plan: every vehicle is listed with its total load, its distance as a
-string with two decimals, and its orders in visiting order. VEH001 is loaded exactly to 100 out of 100.
-VEH002 starts in Noida and takes three Noida orders, so its distance is 0.00 km."
+> This sample is an intentional edge case. The orders weigh 645 kilograms in total, but the fleet can
+> only carry 500. Greedy assigns all 12 high and all 8 medium orders, plus 2 low ones. The 8 low orders
+> that don't fit come back in unassigned orders, each with a reason: insufficient remaining capacity
+> across the fleet. Nothing fails, and every order is accounted for exactly once. The total distance for
+> greedy is 73.42 kilometres.
 
-Optional (10 seconds): in **POST /api/dispatch/orders** change one priority to `"URGENT"` and
-Execute to show the 400: `"Invalid value 'URGENT' for field 'orders[0].priority'. Allowed values:
-HIGH, MEDIUM, LOW"`. Then restore the sample example.
+### 6. Greedy vs OR-Tools (3:42)
 
-## 2:40 - 3:10 The over-capacity case
+**Screen:** `GET /plan` with `strategy=ortools`; the vehicle distances, the dropped orders and the
+`strategy` field.
 
-**Screen:** The same greedy plan response, scrolled to `unassignedOrders`.
+> Now, the same data with Google OR-Tools. It's modelled as a capacitated routing problem, where every
+> order is optional, with a drop penalty. The penalties are ordered, so that dropping one high order
+> costs more than dropping every medium and low order, plus any distance. The solver is warm-started from
+> the greedy plan, so it never drops more high orders than greedy does. Then guided local search improves
+> it for 3 seconds. On this run, OR-Tools found 48.27 kilometres, against 73.42 for greedy, and it served
+> 24 orders instead of 22. All 12 high orders are still assigned, and the 6 orders it dropped are all low
+> priority, each with the reason: dropped by optimizer, insufficient capacity. The strategy field at the
+> bottom always says what actually ran.
 
-**Do:** Point at the eight entries and their `reason`.
+### 7. 5,000-order test data (4:46)
 
-**Say:** "This dataset is an intentional edge case: the orders weigh 645 but the fleet only carries
-500. Greedy assigns all 12 HIGH and all 8 MEDIUM orders plus 2 LOW, and these 8 LOW orders, ORD003,
-014, 016, 019, 022, 024, 028 and 030, come back in unassignedOrders with the reason 'Insufficient
-remaining capacity across fleet'. An order heavier than every vehicle would get 'Package weight
-exceeds capacity of every vehicle'. Nothing fails; every order is accounted for exactly once."
+**Screen:** `POST /test-data` with 5,000 orders and 100 vehicles; then the plan URL opened directly in
+the browser (the response is almost 1 MB).
 
-## 3:10 - 3:50 Greedy vs OR-Tools
+> For scale, this demo endpoint generates a reproducible dataset around 30 Indian cities, and replaces
+> everything that's stored. Here it's 5,000 orders and 100 vehicles, stored through the same chunked
+> upsert, in under 3 seconds. Then I open the greedy plan for all 5,000 orders directly, because it's
+> almost a megabyte of JSON. The server returned it in under a second. Most orders are unassigned here on
+> purpose: 100 vehicles carry about 30,000 kilograms, against about 127,000 kilograms of demand. The
+> benchmarks in the performance document go up to 50,000 orders and 500 vehicles, which greedy plans in
+> about 75 milliseconds.
 
-**Screen:** Swagger **GET /api/dispatch/plan**, then the README "Results on the sample dataset" table.
+### 8. Tests and coverage (5:40)
 
-**Do:** Set `strategy` to `ortools`, **Execute** (it takes about 3 seconds). Show `"strategy":
-"ortools"` at the bottom and the `unassignedOrders` reasons. Then show the README comparison.
+**Screen:** the end of a finished `./mvnw clean verify` run, then `target/site/jacoco/index.html`.
 
-**Say:** "Now the same data with Google OR-Tools. It is modelled as a CVRP with one start node per
-vehicle and one shared dummy end node with zero cost, which gives open routes. Each order is optional
-with a drop penalty, and the penalties are lexicographic: dropping one HIGH costs more than dropping
-every MEDIUM and LOW order plus any distance, and so on down. The solver is warm-started from the
-greedy plan, so it can never drop more HIGH orders than greedy, and guided local search then improves
-it within a 3-second limit. On this sample greedy needs 73.42 km; OR-Tools found 34.24 km on
-my machine and serves 24 orders instead of 22, dropping 6 LOW orders with 'Dropped by optimizer:
-insufficient capacity'. The time-limited search can vary slightly between runs, but the constraints
-always hold. The strategy field tells you what actually ran: above 1,000 orders, or if the native
-library fails, it falls back to greedy and says 'greedy'."
+> The project was built test-first, with JUnit 5, Mockito, MockMvc and AssertJ. Maven verify runs 1,122
+> tests, and enforces an 85 percent line-coverage gate with JaCoCo. Line coverage is at 97.9 percent.
+> The tests cover every validation rule and exact error message, the high-priority rule on random data,
+> the exact sample routes, every OR-Tools fallback, and they prove JDBC batching by counting the real SQL
+> statements.
 
-## 3:50 - 4:25 5,000-order test data and response time
+### 9. Close (6:18)
 
-**Screen:** Swagger tag **"Test data (demo)"**, DevTools Network tab visible.
+**Screen:** the "Deploy to Render" section.
 
-**Do:**
-1. Expand **POST /api/dispatch/test-data** ("Generate test data (demo; replaces all orders and
-   vehicles)"), **Try it out**, enter `orders` = `5000`, `vehicles` = `100`, `seed` = `42`,
-   **Execute**. Point at `ordersGenerated`, `vehiclesGenerated` and `elapsedMs` in the response.
-   (Equivalent request: `POST /api/dispatch/test-data?orders=5000&vehicles=100&seed=42`.)
-2. Go to **GET /api/dispatch/plan**, `strategy` = `greedy`, **Execute**. Point at the request's time in
-   the DevTools Network tab (and, if running locally, the `Dispatch plan: ... elapsedMs=` log line in
-   the terminal).
-
-**Say:** "For scale, this demo endpoint generates a reproducible dataset around 30 Indian cities and
-replaces everything stored. 5,000 orders and 100 vehicles were generated and stored through the same
-chunked upsert in the number of milliseconds you see in elapsedMs. Now the plan for all 5,000 orders:
-the browser shows the full round trip, including serializing the response. Note the many unassigned
-orders: 100 vehicles carry about 30,000 kg against about 127,500 kg of demand, so most orders cannot
-fit, and every HIGH order that fits was placed before any MEDIUM or LOW one. The greedy assignment is
-O(n times m) and allocation-free; the benchmarks in docs/PERFORMANCE.md go up to 50,000 orders and 500
-vehicles."
-
-(Read the actual numbers off the screen; do not quote numbers in advance.)
-
-## 4:25 - 4:50 Tests and coverage
-
-**Screen:** Terminal with the finished `./mvnw verify` output, then `target/site/jacoco/index.html`.
-
-**Do:** Scroll to the surefire `Tests run:` summary and `BUILD SUCCESS`; then show the JaCoCo total line
-coverage.
-
-**Say:** "The project was built test-first with JUnit 5, Mockito, MockMvc and AssertJ. mvnw verify runs
-1,122 tests and enforces an 85% line-coverage gate with JaCoCo; we're at 97.9% line coverage. The tests cover every
-validation case and exact error message, the HIGH-priority invariant on random data, the exact sample
-routes, every OR-Tools fallback, and they prove JDBC batching by counting the actual SQL statements.
-Performance tests run separately with mvnw verify -Pperformance and write docs/PERFORMANCE.md."
-
-## 4:50 - 5:00 Close
-
-**Screen:** `docs/OPERATIONS.md` "Deploy to Render" section or the Render dashboard.
-
-**Say:** "Everything is in the README: how to run it locally or with Docker, curl examples for every
-endpoint, the Postman collection, and the Render deployment with Docker and a health check. Thanks for
-watching."
+> Everything is in the README: how to run it locally or with Docker, curl examples for every endpoint,
+> the Postman collection, and the Render deployment, with Docker and a health check. Thanks for watching!
