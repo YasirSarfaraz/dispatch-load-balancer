@@ -2,7 +2,7 @@
 
 [Back to README](README.md)
 
-The narration and screen plan of the walkthrough video, 7:35 long and recorded against the live
+The narration and screen plan of the [walkthrough video](https://www.loom.com/share/a176871b7c3e417381f57ec08311f50f), 7:35 long and recorded against the live
 Render deployment (PostgreSQL 16). The narration below is the exact audio of the video; figures quoted
 in it are the values the live service and the build returned during recording.
 
